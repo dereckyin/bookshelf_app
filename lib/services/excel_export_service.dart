@@ -49,7 +49,7 @@ class ExcelExportService {
       TextCellValue('序號'),
       TextCellValue('書名'),
       TextCellValue('價格'),
-      TextCellValue('18碼'),
+      TextCellValue('條碼'),
     ]);
 
     for (final book in books) {

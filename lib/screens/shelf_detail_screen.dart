@@ -207,7 +207,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  '18碼：${book.barcode}',
+                  '條碼：${book.barcode}',
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
               ),
@@ -363,7 +363,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                         subtitle: Text(
                           [
                             priceText,
-                            '18碼 ${book.barcode}',
+                            '條碼 ${book.barcode}',
                           ].join('\n'),
                         ),
                         trailing: PopupMenuButton<String>(

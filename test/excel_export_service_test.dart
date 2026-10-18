@@ -30,7 +30,7 @@ void main() {
     final header = sheet.rows.first.map((c) => c?.value?.toString()).toList();
     expect(header.join(), contains('序號'));
     expect(header.join(), contains('書名'));
-    expect(header.join(), contains('18碼'));
+    expect(header.join(), contains('條碼'));
     expect(header.join(), isNot(contains('13碼')));
 
     final row1 = sheet.rows[1].map((c) => c?.value?.toString() ?? '').toList();
