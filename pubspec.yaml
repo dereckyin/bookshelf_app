@@ -1,0 +1,42 @@
+name: bookshelf_app
+description: "個人書櫃整理：掃條碼建櫃、匯出 Excel"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.9.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  sqflite: ^2.3.3
+  mobile_scanner: ^7.4.0
+  flutter_zxing: ^2.2.1
+  image: ^4.2.0
+  excel: ^4.0.6
+  share_plus: ^10.1.4
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.3.3
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/bookshelf_icon.png"
+  adaptive_icon_background: "#FFB7C5"
+  adaptive_icon_foreground: "assets/icon/bookshelf_icon.png"
+  remove_alpha_ios: true
+
