@@ -49,7 +49,6 @@ class ExcelExportService {
       TextCellValue('序號'),
       TextCellValue('書名'),
       TextCellValue('價格'),
-      TextCellValue('13碼'),
       TextCellValue('18碼'),
     ]);
 
@@ -60,7 +59,6 @@ class ExcelExportService {
         TextCellValue(
           book.price == null ? '' : book.price!.toStringAsFixed(0),
         ),
-        TextCellValue(book.code13 ?? ''),
         TextCellValue(book.barcode),
       ]);
     }

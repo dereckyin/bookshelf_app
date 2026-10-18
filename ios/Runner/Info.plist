@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>書櫃整理</string>
+	<string>讀冊書櫃</string>
 	<key>NSCameraUsageDescription</key>
 	<string>掃書籍條碼與讀冊物流標籤，整理書櫃藏書</string>
 	<key>CFBundleExecutable</key>

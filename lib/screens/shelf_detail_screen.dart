@@ -107,12 +107,15 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         }
       }
 
+      // 多筆時依 18 碼前 13 位對 ISBN，自動選相符／新品，不跳出選擇窗
       BookLookupResult? chosen;
-      if (results.length == 1) {
-        chosen = results.first;
-      } else if (results.length > 1) {
-        chosen = await _pickResult(results);
-        if (chosen == null) return;
+      if (results.isNotEmpty) {
+        chosen = pickBestMatch(results, barcode);
+        // 若完全對不上 ISBN（極少見），才讓使用者手動選
+        if (chosen == null) {
+          chosen = await _pickResult(results);
+          if (chosen == null) return;
+        }
       }
 
       final code13 = resolveCode13(
@@ -182,7 +185,6 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     final priceCtrl = TextEditingController(
       text: book.price == null ? '' : book.price!.toStringAsFixed(0),
     );
-    final code13Ctrl = TextEditingController(text: book.code13 ?? '');
 
     final saved = await showDialog<bool>(
       context: context,
@@ -201,18 +203,11 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                 decoration: const InputDecoration(labelText: '價格'),
                 keyboardType: TextInputType.number,
               ),
-              TextField(
-                controller: code13Ctrl,
-                decoration: const InputDecoration(labelText: '13 碼'),
-                keyboardType: TextInputType.number,
-              ),
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  book.barcode.length == 18
-                      ? '18碼：${book.barcode}'
-                      : '條碼：${book.barcode}',
+                  '18碼：${book.barcode}',
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
               ),
@@ -232,22 +227,17 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     if (saved != true) {
       titleCtrl.dispose();
       priceCtrl.dispose();
-      code13Ctrl.dispose();
       return;
     }
 
     final priceText = priceCtrl.text.trim();
-    final code13Text = code13Ctrl.text.trim();
     final updated = book.copyWith(
       title: titleCtrl.text.trim(),
       price: priceText.isEmpty ? null : double.tryParse(priceText),
-      code13: code13Text.isEmpty ? null : code13Text,
       clearPrice: priceText.isEmpty,
-      clearCode13: code13Text.isEmpty,
     );
     titleCtrl.dispose();
     priceCtrl.dispose();
-    code13Ctrl.dispose();
 
     await _db.updateBook(updated);
     await _reload();
@@ -373,15 +363,9 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                         subtitle: Text(
                           [
                             priceText,
-                            if (book.code13 != null && book.code13!.isNotEmpty)
-                              '13碼 ${book.code13}',
-                            // 掃到的原始碼：讀冊貼紙為 18 碼，一般 ISBN 為 13 碼
-                            book.barcode.length == 18
-                                ? '18碼 ${book.barcode}'
-                                : '條碼 ${book.barcode}',
+                            '18碼 ${book.barcode}',
                           ].join('\n'),
                         ),
-                        isThreeLine: true,
                         trailing: PopupMenuButton<String>(
                           onSelected: (value) {
                             if (value == 'edit') _editBook(book);

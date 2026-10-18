@@ -84,3 +84,33 @@ String? resolveCode13({required String scanned, String? apiIsbn}) {
   }
   return ean13FromBarcode(scanned);
 }
+
+/// 多筆搜尋結果時，依掃到的條碼自動挑一本，避免跳出選擇對話框。
+///
+/// 搜尋 API 不回傳 logcode／18 碼，因此以 18 碼前 13 位對 ISBN；
+/// 若仍有多筆（同書新品／二手），優先選新品（id == orgProdId）。
+BookLookupResult? pickBestMatch(
+  List<BookLookupResult> results,
+  String scanned,
+) {
+  if (results.isEmpty) return null;
+  if (results.length == 1) return results.first;
+
+  final code13 = ean13FromBarcode(scanned);
+  var matched = results;
+  if (code13 != null) {
+    final byIsbn =
+        results.where((r) => r.normalizedIsbn == code13).toList();
+    if (byIsbn.isNotEmpty) matched = byIsbn;
+  }
+  if (matched.length == 1) return matched.first;
+
+  final primary = matched.where((r) => r.isPrimaryEdition).toList();
+  if (primary.isNotEmpty) return primary.first;
+
+  // 讀冊新品 prod_id 常以 131 開頭，二手為 133
+  final newer = matched.where((r) => r.id.startsWith('131')).toList();
+  if (newer.isNotEmpty) return newer.first;
+
+  return matched.first;
+}

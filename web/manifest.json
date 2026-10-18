@@ -1,6 +1,6 @@
 {
-    "name": "bookshelf_app",
-    "short_name": "bookshelf_app",
+    "name": "讀冊書櫃",
+    "short_name": "讀冊書櫃",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -70,6 +70,7 @@ class BookLookupResult {
   const BookLookupResult({
     required this.id,
     required this.title,
+    this.orgProdId,
     this.price,
     this.isbn,
     this.author,
@@ -77,9 +78,21 @@ class BookLookupResult {
 
   final String id;
   final String title;
+  final String? orgProdId;
   final double? price;
   final String? isbn;
   final String? author;
+
+  /// 正規化後的 ISBN／EAN（去空白與連字號）
+  String? get normalizedIsbn {
+    final raw = isbn?.replaceAll(RegExp(r'[\s-]'), '');
+    if (raw == null || raw.isEmpty) return null;
+    return raw;
+  }
+
+  /// 讀冊新品通常 prod_id == org_prod_id（二手為不同 133… id）
+  bool get isPrimaryEdition =>
+      orgProdId != null && orgProdId!.isNotEmpty && id == orgProdId;
 
   factory BookLookupResult.fromJson(Map<String, dynamic> json) {
     final priceRaw = json['price'];
@@ -90,9 +103,11 @@ class BookLookupResult {
       price = double.tryParse(priceRaw.toString());
     }
     final isbn = json['isbn']?.toString().trim();
+    final org = json['orgProdId']?.toString().trim();
     return BookLookupResult(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
+      orgProdId: (org == null || org.isEmpty) ? null : org,
       price: price,
       isbn: (isbn == null || isbn.isEmpty) ? null : isbn,
       author: json['author']?.toString(),

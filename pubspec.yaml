@@ -1,5 +1,5 @@
 name: bookshelf_app
-description: "個人書櫃整理：掃條碼建櫃、匯出 Excel"
+description: "讀冊書櫃：掃條碼建櫃、匯出 Excel"
 publish_to: 'none'
 version: 1.0.0+1
 
