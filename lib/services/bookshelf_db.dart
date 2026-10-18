@@ -23,7 +23,7 @@ class BookshelfDb {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'bookshelf.db'),
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE shelves (
@@ -42,6 +42,7 @@ class BookshelfDb {
             code13 TEXT,
             barcode TEXT NOT NULL,
             qty INTEGER NOT NULL DEFAULT 1,
+            org_prod_id TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (shelf_id) REFERENCES shelves (id) ON DELETE CASCADE
           )
@@ -67,6 +68,9 @@ class BookshelfDb {
           await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_books_code13 ON books (shelf_id, code13)',
           );
+        }
+        if (oldVersion < 3) {
+          await db.execute('ALTER TABLE books ADD COLUMN org_prod_id TEXT');
         }
       },
       onConfigure: (db) async {
@@ -174,6 +178,7 @@ class BookshelfDb {
     String title = '',
     double? price,
     String? code13,
+    String? orgProdId,
     int qty = 1,
   }) async {
     final db = await database;
@@ -186,6 +191,7 @@ class BookshelfDb {
       price: price,
       code13: code13,
       barcode: barcode,
+      orgProdId: orgProdId,
       qty: qty < 1 ? 1 : qty,
       createdAt: DateTime.now(),
     );
@@ -203,6 +209,7 @@ class BookshelfDb {
         'code13': book.code13,
         'barcode': book.barcode,
         'qty': book.qty,
+        'org_prod_id': book.orgProdId,
       },
       where: 'id = ?',
       whereArgs: [book.id],

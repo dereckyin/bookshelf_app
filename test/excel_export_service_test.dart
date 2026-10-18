@@ -17,6 +17,7 @@ void main() {
         code13: '9789868253759',
         barcode: '978986825375920003',
         qty: 2,
+        orgProdId: '11100123456',
         createdAt: DateTime(2026, 1, 1),
       ),
     ];

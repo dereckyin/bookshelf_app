@@ -8,6 +8,7 @@ class ShelfBook {
     this.code13,
     required this.barcode,
     this.qty = 1,
+    this.orgProdId,
     required this.createdAt,
   });
 
@@ -19,7 +20,15 @@ class ShelfBook {
   final String? code13;
   final String barcode;
   final int qty;
+  final String? orgProdId;
   final DateTime createdAt;
+
+  /// 讀冊書封圖（有 orgProdId 才有）
+  String? get coverUrl {
+    final sc = orgProdId?.trim();
+    if (sc == null || sc.isEmpty) return null;
+    return 'https://media.taaze.tw/showLargeImage.html?sc=$sc&width=120&height=160';
+  }
 
   ShelfBook copyWith({
     String? title,
@@ -27,8 +36,10 @@ class ShelfBook {
     String? code13,
     String? barcode,
     int? qty,
+    String? orgProdId,
     bool clearPrice = false,
     bool clearCode13 = false,
+    bool clearOrgProdId = false,
   }) {
     return ShelfBook(
       id: id,
@@ -39,6 +50,7 @@ class ShelfBook {
       code13: clearCode13 ? null : (code13 ?? this.code13),
       barcode: barcode ?? this.barcode,
       qty: qty ?? this.qty,
+      orgProdId: clearOrgProdId ? null : (orgProdId ?? this.orgProdId),
       createdAt: createdAt,
     );
   }
@@ -53,6 +65,7 @@ class ShelfBook {
       'code13': code13,
       'barcode': barcode,
       'qty': qty,
+      'org_prod_id': orgProdId,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -67,6 +80,7 @@ class ShelfBook {
       code13: map['code13'] as String?,
       barcode: map['barcode'] as String,
       qty: (map['qty'] as int?) ?? 1,
+      orgProdId: map['org_prod_id'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
     );
   }
@@ -81,6 +95,7 @@ class BookLookupResult {
     this.price,
     this.isbn,
     this.author,
+    this.imageUrl,
   });
 
   final String id;
@@ -89,6 +104,15 @@ class BookLookupResult {
   final double? price;
   final String? isbn;
   final String? author;
+  final String? imageUrl;
+
+  /// 用於書封：優先 orgProdId，否則用 id
+  String? get coverProdId {
+    final org = orgProdId?.trim();
+    if (org != null && org.isNotEmpty) return org;
+    final pid = id.trim();
+    return pid.isEmpty ? null : pid;
+  }
 
   /// 正規化後的 ISBN／EAN（去空白與連字號）
   String? get normalizedIsbn {
@@ -111,6 +135,7 @@ class BookLookupResult {
     }
     final isbn = json['isbn']?.toString().trim();
     final org = json['orgProdId']?.toString().trim();
+    final image = json['imageUrl']?.toString().trim();
     return BookLookupResult(
       id: json['id']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -118,6 +143,7 @@ class BookLookupResult {
       price: price,
       isbn: (isbn == null || isbn.isEmpty) ? null : isbn,
       author: json['author']?.toString(),
+      imageUrl: (image == null || image.isEmpty) ? null : image,
     );
   }
 }

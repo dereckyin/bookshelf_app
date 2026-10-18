@@ -6,6 +6,7 @@ import '../models/shelf_book.dart';
 import '../services/book_lookup_service.dart';
 import '../services/bookshelf_db.dart';
 import '../services/excel_export_service.dart';
+import '../widgets/book_cover.dart';
 import 'barcode_camera_scan_screen.dart';
 
 class ShelfDetailScreen extends StatefulWidget {
@@ -115,6 +116,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
       );
       final title = chosen?.title ?? '';
       final price = chosen?.price;
+      final orgProdId = chosen?.coverProdId;
 
       // 1) 同一條碼（含讀冊 18 碼）已存在 → 問是否覆蓋
       final sameBarcode = await _db.findByBarcode(_shelf.id, barcode);
@@ -147,6 +149,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
           title: title.isEmpty ? sameBarcode.title : title,
           price: price ?? sameBarcode.price,
           code13: code13 ?? sameBarcode.code13,
+          orgProdId: orgProdId ?? sameBarcode.orgProdId,
         );
         await _db.updateBook(updated);
         HapticFeedback.mediumImpact();
@@ -216,6 +219,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         title: title,
         price: price,
         code13: code13,
+        orgProdId: orgProdId,
       );
 
       HapticFeedback.mediumImpact();
@@ -248,6 +252,13 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
               onPressed: () => Navigator.pop(ctx, r),
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
+                leading: BookCover(
+                  url: r.coverProdId == null
+                      ? null
+                      : 'https://media.taaze.tw/showLargeImage.html?sc=${r.coverProdId}&width=80&height=110',
+                  width: 36,
+                  height: 48,
+                ),
                 title: Text(r.title),
                 subtitle: Text(
                   [
@@ -445,8 +456,9 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                         : 'NT\$${book.price!.toStringAsFixed(0)}';
                     return Card(
                       child: ListTile(
-                        leading: CircleAvatar(
-                          child: Text('${book.seq}'),
+                        leading: BookCover(
+                          url: book.coverUrl,
+                          seq: book.seq,
                         ),
                         title: Text(
                           book.title.isEmpty ? '(未查到書名)' : book.title,
