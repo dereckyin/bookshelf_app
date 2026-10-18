@@ -24,10 +24,15 @@ class ShelfBook {
   final DateTime createdAt;
 
   /// 讀冊書封圖（有 orgProdId 才有）
-  String? get coverUrl {
+  String? get coverUrl => coverUrlSized(width: 120, height: 160);
+
+  /// 大圖預覽用
+  String? get largeCoverUrl => coverUrlSized(width: 600, height: 800);
+
+  String? coverUrlSized({required int width, required int height}) {
     final sc = orgProdId?.trim();
     if (sc == null || sc.isEmpty) return null;
-    return 'https://media.taaze.tw/showLargeImage.html?sc=$sc&width=120&height=160';
+    return 'https://media.taaze.tw/showLargeImage.html?sc=$sc&width=$width&height=$height';
   }
 
   ShelfBook copyWith({

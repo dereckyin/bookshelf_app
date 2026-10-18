@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -22,17 +24,37 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
   final _db = BookshelfDb.instance;
   final _lookup = BookLookupService();
   final _export = ExcelExportService();
+  final _searchCtrl = TextEditingController();
 
   late Shelf _shelf;
   List<ShelfBook> _books = [];
   bool _loading = true;
   bool _busy = false;
+  bool _searching = false;
 
   @override
   void initState() {
     super.initState();
     _shelf = widget.shelf;
+    _searchCtrl.addListener(() => setState(() {}));
     _reload();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<ShelfBook> get _visibleBooks {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isEmpty) return _books;
+    return _books.where((b) {
+      final title = b.title.toLowerCase();
+      final barcode = b.barcode.toLowerCase();
+      final code13 = (b.code13 ?? '').toLowerCase();
+      return title.contains(q) || barcode.contains(q) || code13.contains(q);
+    }).toList();
   }
 
   Future<void> _reload() async {
@@ -43,6 +65,57 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
       _books = books;
       _loading = false;
     });
+    // 舊資料可能沒有 orgProdId → 背景補書封
+    unawaited(_backfillMissingCovers(books));
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searching = !_searching;
+      if (!_searching) _searchCtrl.clear();
+    });
+  }
+
+  /// 對沒有封面的書，用 13 碼／條碼再查一次搜尋 API 補上 orgProdId。
+  Future<void> _backfillMissingCovers(List<ShelfBook> books) async {
+    final missing = books
+        .where(
+          (b) =>
+              (b.orgProdId == null || b.orgProdId!.isEmpty) &&
+              ((b.code13 != null && b.code13!.isNotEmpty) ||
+                  b.barcode.isNotEmpty),
+        )
+        .toList();
+    if (missing.isEmpty) return;
+
+    var changed = false;
+    for (final book in missing) {
+      if (!mounted) return;
+      try {
+        final query = book.code13?.isNotEmpty == true ? book.code13! : book.barcode;
+        final results = await _lookup.lookup(query);
+        final chosen = pickBestMatch(results, book.barcode) ??
+            (results.isEmpty ? null : results.first);
+        final orgId = chosen?.coverProdId;
+        if (orgId == null || orgId.isEmpty) continue;
+
+        final updated = book.copyWith(
+          orgProdId: orgId,
+          title: book.title.isEmpty ? (chosen?.title ?? '') : book.title,
+          price: book.price ?? chosen?.price,
+          code13: book.code13 ?? chosen?.normalizedIsbn,
+        );
+        await _db.updateBook(updated);
+        changed = true;
+      } catch (_) {
+        // 單本補圖失敗略過，不影響其他本
+      }
+    }
+    if (changed && mounted) {
+      final refreshed = await _db.listBooks(_shelf.id);
+      if (!mounted) return;
+      setState(() => _books = refreshed);
+    }
   }
 
   Future<void> _scan() async {
@@ -394,20 +467,40 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final visible = _visibleBooks;
+    final query = _searchCtrl.text.trim();
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(_shelf.name),
+        title: _searching
+            ? TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '搜尋書名或條碼',
+                  border: InputBorder.none,
+                ),
+                textInputAction: TextInputAction.search,
+              )
+            : Text(_shelf.name),
         actions: [
           IconButton(
-            tooltip: '手動輸入',
-            onPressed: _busy ? null : _manualInput,
-            icon: const Icon(Icons.keyboard),
+            tooltip: _searching ? '關閉搜尋' : '搜尋書名',
+            onPressed: _books.isEmpty ? null : _toggleSearch,
+            icon: Icon(_searching ? Icons.close : Icons.search),
           ),
-          IconButton(
-            tooltip: '匯出 Excel',
-            onPressed: _busy ? null : _exportExcel,
-            icon: const Icon(Icons.ios_share),
-          ),
+          if (!_searching) ...[
+            IconButton(
+              tooltip: '手動輸入',
+              onPressed: _busy ? null : _manualInput,
+              icon: const Icon(Icons.keyboard),
+            ),
+            IconButton(
+              tooltip: '匯出 Excel',
+              onPressed: _busy ? null : _exportExcel,
+              icon: const Icon(Icons.ios_share),
+            ),
+          ],
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -445,51 +538,75 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                     ),
                   ),
                 )
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-                  itemCount: _books.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 6),
-                  itemBuilder: (context, index) {
-                    final book = _books[index];
-                    final priceText = book.price == null
-                        ? '—'
-                        : 'NT\$${book.price!.toStringAsFixed(0)}';
-                    return Card(
-                      child: ListTile(
-                        leading: BookCover(
-                          url: book.coverUrl,
-                          seq: book.seq,
+              : visible.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Text(
+                          query.isEmpty
+                              ? '沒有書籍'
+                              : '找不到符合「$query」的書',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyLarge,
                         ),
-                        title: Text(
-                          book.title.isEmpty ? '(未查到書名)' : book.title,
-                          style: book.title.isEmpty
-                              ? TextStyle(
-                                  color: Theme.of(context).colorScheme.outline,
-                                  fontStyle: FontStyle.italic,
-                                )
-                              : null,
-                        ),
-                        subtitle: Text(
-                          [
-                            '$priceText · 數量 ${book.qty}',
-                            '條碼 ${book.barcode}',
-                          ].join('\n'),
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (value) {
-                            if (value == 'edit') _editBook(book);
-                            if (value == 'delete') _deleteBook(book);
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'edit', child: Text('編輯')),
-                            PopupMenuItem(value: 'delete', child: Text('刪除')),
-                          ],
-                        ),
-                        onTap: () => _editBook(book),
                       ),
-                    );
-                  },
-                ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
+                      itemCount: visible.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: 6),
+                      itemBuilder: (context, index) {
+                        final book = visible[index];
+                        final priceText = book.price == null
+                            ? '—'
+                            : 'NT\$${book.price!.toStringAsFixed(0)}';
+                        return Card(
+                          child: ListTile(
+                            leading: BookCover(
+                              url: book.coverUrl,
+                              largeUrl: book.largeCoverUrl,
+                              title: book.title,
+                              seq: book.seq,
+                            ),
+                            title: Text(
+                              book.title.isEmpty ? '(未查到書名)' : book.title,
+                              style: book.title.isEmpty
+                                  ? TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline,
+                                      fontStyle: FontStyle.italic,
+                                    )
+                                  : null,
+                            ),
+                            subtitle: Text(
+                              [
+                                '$priceText · 數量 ${book.qty}',
+                                '條碼 ${book.barcode}',
+                              ].join('\n'),
+                            ),
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'edit') _editBook(book);
+                                if (value == 'delete') _deleteBook(book);
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('編輯'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text('刪除'),
+                                ),
+                              ],
+                            ),
+                            onTap: () => _editBook(book),
+                          ),
+                        );
+                      },
+                    ),
     );
   }
 }
