@@ -26,6 +26,7 @@ class ExcelExportService {
     final file = File(p.join(dir.path, '${safeName}_bookshelf.xlsx'));
     await file.writeAsBytes(bytes, flush: true);
 
+    final totalQty = books.fold<int>(0, (sum, b) => sum + b.qty);
     await Share.shareXFiles(
       [
         XFile(
@@ -35,7 +36,7 @@ class ExcelExportService {
         ),
       ],
       subject: '$shelfName 書櫃清單',
-      text: '$shelfName 共 ${books.length} 本書',
+      text: '$shelfName 共 $totalQty 本（${books.length} 筆）',
     );
   }
 
@@ -49,6 +50,7 @@ class ExcelExportService {
       TextCellValue('序號'),
       TextCellValue('書名'),
       TextCellValue('價格'),
+      TextCellValue('數量'),
       TextCellValue('條碼'),
     ]);
 
@@ -59,6 +61,7 @@ class ExcelExportService {
         TextCellValue(
           book.price == null ? '' : book.price!.toStringAsFixed(0),
         ),
+        TextCellValue('${book.qty}'),
         TextCellValue(book.barcode),
       ]);
     }

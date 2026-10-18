@@ -7,6 +7,7 @@ class ShelfBook {
     this.price,
     this.code13,
     required this.barcode,
+    this.qty = 1,
     required this.createdAt,
   });
 
@@ -17,12 +18,15 @@ class ShelfBook {
   final double? price;
   final String? code13;
   final String barcode;
+  final int qty;
   final DateTime createdAt;
 
   ShelfBook copyWith({
     String? title,
     double? price,
     String? code13,
+    String? barcode,
+    int? qty,
     bool clearPrice = false,
     bool clearCode13 = false,
   }) {
@@ -33,7 +37,8 @@ class ShelfBook {
       title: title ?? this.title,
       price: clearPrice ? null : (price ?? this.price),
       code13: clearCode13 ? null : (code13 ?? this.code13),
-      barcode: barcode,
+      barcode: barcode ?? this.barcode,
+      qty: qty ?? this.qty,
       createdAt: createdAt,
     );
   }
@@ -47,6 +52,7 @@ class ShelfBook {
       'price': price,
       'code13': code13,
       'barcode': barcode,
+      'qty': qty,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -60,6 +66,7 @@ class ShelfBook {
       price: (map['price'] as num?)?.toDouble(),
       code13: map['code13'] as String?,
       barcode: map['barcode'] as String,
+      qty: (map['qty'] as int?) ?? 1,
       createdAt: DateTime.parse(map['created_at'] as String),
     );
   }

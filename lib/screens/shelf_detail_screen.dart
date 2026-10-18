@@ -89,13 +89,6 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     setState(() => _busy = true);
 
     try {
-      final exists = await _db.barcodeExists(_shelf.id, barcode);
-      if (exists && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('此條碼已在「${_shelf.name}」裡，仍會再新增一本')),
-        );
-      }
-
       List<BookLookupResult> results = [];
       try {
         results = await _lookup.lookup(barcode);
@@ -107,11 +100,9 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         }
       }
 
-      // 多筆時依 18 碼前 13 位對 ISBN，自動選相符／新品，不跳出選擇窗
       BookLookupResult? chosen;
       if (results.isNotEmpty) {
         chosen = pickBestMatch(results, barcode);
-        // 若完全對不上 ISBN（極少見），才讓使用者手動選
         if (chosen == null) {
           chosen = await _pickResult(results);
           if (chosen == null) return;
@@ -122,12 +113,108 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         scanned: barcode,
         apiIsbn: chosen?.isbn,
       );
+      final title = chosen?.title ?? '';
+      final price = chosen?.price;
+
+      // 1) 同一條碼（含讀冊 18 碼）已存在 → 問是否覆蓋
+      final sameBarcode = await _db.findByBarcode(_shelf.id, barcode);
+      if (sameBarcode != null) {
+        if (!mounted) return;
+        final overwrite = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('條碼已存在'),
+            content: Text(
+              '條碼「$barcode」已在本櫃'
+              '${sameBarcode.title.isEmpty ? '' : '（${sameBarcode.title}）'}。\n'
+              '要覆蓋更新書名與價格嗎？',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('覆蓋'),
+              ),
+            ],
+          ),
+        );
+        if (overwrite != true) return;
+
+        final updated = sameBarcode.copyWith(
+          title: title.isEmpty ? sameBarcode.title : title,
+          price: price ?? sameBarcode.price,
+          code13: code13 ?? sameBarcode.code13,
+        );
+        await _db.updateBook(updated);
+        HapticFeedback.mediumImpact();
+        await _reload();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已覆蓋序號 ${updated.seq}')),
+        );
+        return;
+      }
+
+      // 2) 不同條碼但 13 碼（EAN）相同 → 問是否增加數量（買多本）
+      if (code13 != null) {
+        final sameEan = await _db.findByCode13(_shelf.id, code13);
+        if (sameEan != null) {
+          if (!mounted) return;
+          final action = await showDialog<String>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('相同書籍'),
+              content: Text(
+                '本櫃已有相同 EAN（$code13）'
+                '${sameEan.title.isEmpty ? '' : '：${sameEan.title}'}，'
+                '目前數量 ${sameEan.qty}。\n'
+                '要增加數量，或另外新增一筆？',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, 'new'),
+                  child: const Text('另外新增'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, 'qty'),
+                  child: const Text('增加數量'),
+                ),
+              ],
+            ),
+          );
+          if (action == null) return;
+
+          if (action == 'qty') {
+            final updated = await _db.incrementQty(sameEan);
+            HapticFeedback.mediumImpact();
+            await _reload();
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '已將「${updated.title.isEmpty ? code13 : updated.title}」'
+                  '數量改為 ${updated.qty}',
+                ),
+              ),
+            );
+            return;
+          }
+          // action == 'new' → fall through to add
+        }
+      }
 
       final book = await _db.addBook(
         shelfId: _shelf.id,
         barcode: barcode,
-        title: chosen?.title ?? '',
-        price: chosen?.price,
+        title: title,
+        price: price,
         code13: code13,
       );
 
@@ -185,6 +272,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     final priceCtrl = TextEditingController(
       text: book.price == null ? '' : book.price!.toStringAsFixed(0),
     );
+    final qtyCtrl = TextEditingController(text: '${book.qty}');
 
     final saved = await showDialog<bool>(
       context: context,
@@ -201,6 +289,11 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
               TextField(
                 controller: priceCtrl,
                 decoration: const InputDecoration(labelText: '價格'),
+                keyboardType: TextInputType.number,
+              ),
+              TextField(
+                controller: qtyCtrl,
+                decoration: const InputDecoration(labelText: '數量'),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 8),
@@ -227,17 +320,21 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     if (saved != true) {
       titleCtrl.dispose();
       priceCtrl.dispose();
+      qtyCtrl.dispose();
       return;
     }
 
     final priceText = priceCtrl.text.trim();
+    final qty = int.tryParse(qtyCtrl.text.trim()) ?? book.qty;
     final updated = book.copyWith(
       title: titleCtrl.text.trim(),
       price: priceText.isEmpty ? null : double.tryParse(priceText),
+      qty: qty < 1 ? 1 : qty,
       clearPrice: priceText.isEmpty,
     );
     titleCtrl.dispose();
     priceCtrl.dispose();
+    qtyCtrl.dispose();
 
     await _db.updateBook(updated);
     await _reload();
@@ -362,7 +459,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                         ),
                         subtitle: Text(
                           [
-                            priceText,
+                            '$priceText · 數量 ${book.qty}',
                             '條碼 ${book.barcode}',
                           ].join('\n'),
                         ),

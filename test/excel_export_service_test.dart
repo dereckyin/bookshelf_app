@@ -16,6 +16,7 @@ void main() {
         price: 500,
         code13: '9789868253759',
         barcode: '978986825375920003',
+        qty: 2,
         createdAt: DateTime(2026, 1, 1),
       ),
     ];
@@ -30,11 +31,13 @@ void main() {
     final header = sheet.rows.first.map((c) => c?.value?.toString()).toList();
     expect(header.join(), contains('序號'));
     expect(header.join(), contains('書名'));
+    expect(header.join(), contains('數量'));
     expect(header.join(), contains('條碼'));
     expect(header.join(), isNot(contains('13碼')));
 
     final row1 = sheet.rows[1].map((c) => c?.value?.toString() ?? '').toList();
     expect(row1.join(), contains('保險法'));
     expect(row1.join(), contains('978986825375920003'));
+    expect(row1.join(), contains('2'));
   });
 }

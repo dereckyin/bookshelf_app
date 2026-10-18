@@ -23,7 +23,7 @@ class BookshelfDb {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'bookshelf.db'),
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE shelves (
@@ -41,6 +41,7 @@ class BookshelfDb {
             price REAL,
             code13 TEXT,
             barcode TEXT NOT NULL,
+            qty INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
             FOREIGN KEY (shelf_id) REFERENCES shelves (id) ON DELETE CASCADE
           )
@@ -48,6 +49,25 @@ class BookshelfDb {
         await db.execute(
           'CREATE INDEX idx_books_shelf ON books (shelf_id, seq)',
         );
+        await db.execute(
+          'CREATE INDEX idx_books_barcode ON books (shelf_id, barcode)',
+        );
+        await db.execute(
+          'CREATE INDEX idx_books_code13 ON books (shelf_id, code13)',
+        );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE books ADD COLUMN qty INTEGER NOT NULL DEFAULT 1',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_books_barcode ON books (shelf_id, barcode)',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_books_code13 ON books (shelf_id, code13)',
+          );
+        }
       },
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
@@ -58,7 +78,7 @@ class BookshelfDb {
   Future<List<Shelf>> listShelves() async {
     final db = await database;
     final rows = await db.rawQuery('''
-      SELECT s.*, COUNT(b.id) AS book_count
+      SELECT s.*, COALESCE(SUM(b.qty), 0) AS book_count
       FROM shelves s
       LEFT JOIN books b ON b.shelf_id = s.id
       GROUP BY s.id
@@ -122,16 +142,30 @@ class BookshelfDb {
     return (maxSeq ?? 0) + 1;
   }
 
-  Future<bool> barcodeExists(String shelfId, String barcode) async {
+  Future<ShelfBook?> findByBarcode(String shelfId, String barcode) async {
     final db = await database;
     final rows = await db.query(
       'books',
-      columns: ['id'],
       where: 'shelf_id = ? AND barcode = ?',
       whereArgs: [shelfId, barcode],
       limit: 1,
     );
-    return rows.isNotEmpty;
+    if (rows.isEmpty) return null;
+    return ShelfBook.fromMap(rows.first);
+  }
+
+  /// 找櫃內第一筆相同 13 碼（EAN／ISBN）的書。
+  Future<ShelfBook?> findByCode13(String shelfId, String code13) async {
+    final db = await database;
+    final rows = await db.query(
+      'books',
+      where: 'shelf_id = ? AND code13 = ?',
+      whereArgs: [shelfId, code13],
+      orderBy: 'seq ASC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return ShelfBook.fromMap(rows.first);
   }
 
   Future<ShelfBook> addBook({
@@ -140,6 +174,7 @@ class BookshelfDb {
     String title = '',
     double? price,
     String? code13,
+    int qty = 1,
   }) async {
     final db = await database;
     final seq = await nextSeq(shelfId);
@@ -151,6 +186,7 @@ class BookshelfDb {
       price: price,
       code13: code13,
       barcode: barcode,
+      qty: qty < 1 ? 1 : qty,
       createdAt: DateTime.now(),
     );
     await db.insert('books', book.toMap());
@@ -165,10 +201,18 @@ class BookshelfDb {
         'title': book.title,
         'price': book.price,
         'code13': book.code13,
+        'barcode': book.barcode,
+        'qty': book.qty,
       },
       where: 'id = ?',
       whereArgs: [book.id],
     );
+  }
+
+  Future<ShelfBook> incrementQty(ShelfBook book, {int by = 1}) async {
+    final updated = book.copyWith(qty: book.qty + by);
+    await updateBook(updated);
+    return updated;
   }
 
   Future<void> deleteBook(String id) async {
