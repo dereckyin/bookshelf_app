@@ -25,20 +25,40 @@ class BookCover extends StatelessWidget {
     if (preview == null || preview.isEmpty) return;
     showDialog<void>(
       context: context,
-      barrierColor: Colors.black87,
-      builder: (ctx) => Dialog.fullscreen(
-        backgroundColor: Colors.black,
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Center(
-                child: InteractiveViewer(
-                  minScale: 0.8,
-                  maxScale: 4,
-                  child: Image.network(
-                    preview,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => const Icon(
+      barrierColor: Colors.black,
+      builder: (ctx) {
+        final size = MediaQuery.sizeOf(ctx);
+        return Dialog.fullscreen(
+          backgroundColor: Colors.black,
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            appBar: AppBar(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              title: Text(
+                title?.isNotEmpty == true ? title! : '書封',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              leading: IconButton(
+                tooltip: '關閉',
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+            // InteractiveViewer 必須佔滿可視區域，縮放才不會被裁在小框裡
+            body: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 5,
+              boundaryMargin: const EdgeInsets.all(80),
+              child: SizedBox(
+                width: size.width,
+                height: size.height - kToolbarHeight - MediaQuery.paddingOf(ctx).top,
+                child: Image.network(
+                  preview,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => const Center(
+                    child: Icon(
                       Icons.broken_image_outlined,
                       color: Colors.white54,
                       size: 64,
@@ -46,30 +66,10 @@ class BookCover extends StatelessWidget {
                   ),
                 ),
               ),
-              Positioned(
-                top: 8,
-                left: 8,
-                right: 56,
-                child: Text(
-                  title?.isNotEmpty == true ? title! : '書封',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white70, fontSize: 16),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                right: 0,
-                child: IconButton(
-                  tooltip: '關閉',
-                  icon: const Icon(Icons.close, color: Colors.white),
-                  onPressed: () => Navigator.pop(ctx),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

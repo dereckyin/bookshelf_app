@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/book_search_hit.dart';
 import '../models/shelf.dart';
 import '../models/shelf_book.dart';
 
@@ -134,6 +135,35 @@ class BookshelfDb {
       orderBy: 'seq ASC',
     );
     return rows.map(ShelfBook.fromMap).toList();
+  }
+
+  /// 跨所有書櫃搜尋書名／條碼／13 碼。
+  Future<List<BookSearchHit>> searchAllBooks(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) return [];
+
+    final db = await database;
+    final like = '%$q%';
+    final rows = await db.rawQuery(
+      '''
+      SELECT b.*, s.id AS shelf_id_join, s.name AS shelf_name
+      FROM books b
+      INNER JOIN shelves s ON s.id = b.shelf_id
+      WHERE b.title LIKE ? COLLATE NOCASE
+         OR b.barcode LIKE ?
+         OR IFNULL(b.code13, '') LIKE ?
+      ORDER BY s.name ASC, b.seq ASC
+      ''',
+      [like, like, like],
+    );
+
+    return rows.map((r) {
+      return BookSearchHit(
+        book: ShelfBook.fromMap(r),
+        shelfId: (r['shelf_id'] as String?) ?? (r['shelf_id_join'] as String),
+        shelfName: (r['shelf_name'] as String?) ?? '',
+      );
+    }).toList();
   }
 
   Future<int> nextSeq(String shelfId) async {
