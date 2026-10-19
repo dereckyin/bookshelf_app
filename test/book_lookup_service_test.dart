@@ -117,6 +117,29 @@ void main() {
     expect(result.isbn, '9789868253759');
   });
 
+  test('isCatalogCoverOrgId accepts 111/131 and rejects 813 warehouse ids', () {
+    expect(isCatalogCoverOrgId('13100013557'), isTrue);
+    expect(isCatalogCoverOrgId('11100467638'), isTrue);
+    expect(isCatalogCoverOrgId('81301629485'), isFalse);
+    expect(isCatalogCoverOrgId(null), isFalse);
+  });
+
+  test('catalogCoverOrgIdFromSearch prefers 131 orgProdId', () {
+    final results = [
+      const BookLookupResult(
+        id: '81301629485',
+        title: 'Digital Design',
+        orgProdId: '81301629485',
+      ),
+      const BookLookupResult(
+        id: '13300019745',
+        title: 'Digital Design',
+        orgProdId: '13100013557',
+      ),
+    ];
+    expect(catalogCoverOrgIdFromSearch(results), '13100013557');
+  });
+
   test('parseBookLookupResponse uses listPrice when salePrice is zero', () {
     const body = '''
 {

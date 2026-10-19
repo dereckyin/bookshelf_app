@@ -32,7 +32,10 @@ class BookLookupService {
     if (RegExp(r'^\d{18}$').hasMatch(raw)) {
       try {
         final byLogcode = await lookupByLogcode(raw);
-        if (byLogcode != null) return [byLogcode];
+        if (byLogcode != null) {
+          // LOGCODE 列常是 813… 無書封圖，用 ISBN 搜尋補正確 orgProdId
+          return [await _withCatalogCover(byLogcode)];
+        }
       } catch (_) {
         // lookup 慢或失敗時仍走 search，不阻斷掃碼
       }
@@ -40,6 +43,30 @@ class BookLookupService {
 
     final query = ean13FromBarcode(q) ?? q;
     return _search(query);
+  }
+
+  /// 若目前 orgProdId 無法當書封，改用 /search/ 的目錄版 orgProdId。
+  Future<BookLookupResult> _withCatalogCover(BookLookupResult book) async {
+    if (isCatalogCoverOrgId(book.orgProdId)) return book;
+    final isbn = book.normalizedIsbn;
+    if (isbn == null || isbn.isEmpty) return book;
+    try {
+      final results = await _search(isbn);
+      final coverId = catalogCoverOrgIdFromSearch(results);
+      if (coverId == null || coverId.isEmpty) return book;
+      return BookLookupResult(
+        id: book.id,
+        title: book.title,
+        orgProdId: coverId,
+        price: book.price,
+        isbn: book.isbn,
+        author: book.author,
+        imageUrl: book.imageUrl,
+        condition: book.condition,
+      );
+    } catch (_) {
+      return book;
+    }
   }
 
   /// 依完整條碼查 PRODUCT（18 LOGCODE／11 PROD_ID／13 EAN）。
@@ -134,6 +161,26 @@ List<BookLookupResult> parseSearchResponse(String body) {
     results.add(book);
   }
   return results;
+}
+
+/// 讀冊書封 media 通常用 111…／131… 目錄版 org_prod_id；
+/// LOGCODE 列常見 813… 本身沒有書封圖。
+bool isCatalogCoverOrgId(String? id) {
+  final raw = id?.trim() ?? '';
+  if (raw.isEmpty) return false;
+  return raw.startsWith('111') || raw.startsWith('131');
+}
+
+/// 從搜尋結果挑可用的書封 orgProdId。
+String? catalogCoverOrgIdFromSearch(List<BookLookupResult> results) {
+  for (final r in results) {
+    final org = r.orgProdId?.trim();
+    if (isCatalogCoverOrgId(org)) return org;
+  }
+  for (final r in results) {
+    if (isCatalogCoverOrgId(r.id)) return r.id;
+  }
+  return null;
 }
 
 /// 從掃到的條碼取出可用的 EAN-13（讀冊 18 碼取前 13）。

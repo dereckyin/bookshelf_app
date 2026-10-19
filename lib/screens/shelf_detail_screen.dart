@@ -78,12 +78,12 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     });
   }
 
-  /// 對沒有封面的書，用 13 碼／條碼再查一次搜尋 API 補上 orgProdId。
+  /// 對沒有封面、或 LOGCODE 寫入錯誤 813… orgProdId 的書，用搜尋補書封。
   Future<void> _backfillMissingCovers(List<ShelfBook> books) async {
     final missing = books
         .where(
           (b) =>
-              (b.orgProdId == null || b.orgProdId!.isEmpty) &&
+              !isCatalogCoverOrgId(b.orgProdId) &&
               ((b.code13 != null && b.code13!.isNotEmpty) ||
                   b.barcode.isNotEmpty),
         )
@@ -94,13 +94,17 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     for (final book in missing) {
       if (!mounted) return;
       try {
-        final query = book.code13?.isNotEmpty == true ? book.code13! : book.barcode;
+        // 用 13 碼搜尋，避免再走 LOGCODE 拿回 813…
+        final query = book.code13?.isNotEmpty == true
+            ? book.code13!
+            : (ean13FromBarcode(book.barcode) ?? book.barcode);
         final results = await _lookup.lookup(query);
+        final orgId = catalogCoverOrgIdFromSearch(results);
+        if (orgId == null || orgId.isEmpty) continue;
+        if (orgId == book.orgProdId) continue;
+
         final chosen = pickBestMatch(results, book.barcode) ??
             (results.isEmpty ? null : results.first);
-        final orgId = chosen?.coverProdId;
-        if (orgId == null || orgId.isEmpty) continue;
-
         final updated = book.copyWith(
           orgProdId: orgId,
           title: book.title.isEmpty ? (chosen?.title ?? '') : book.title,
