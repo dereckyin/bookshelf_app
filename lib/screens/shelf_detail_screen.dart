@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/book_condition.dart';
 import '../models/shelf.dart';
 import '../models/shelf_book.dart';
 import '../services/book_lookup_service.dart';
 import '../services/bookshelf_db.dart';
 import '../services/excel_export_service.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/manual_book_form_dialog.dart';
 import 'barcode_camera_scan_screen.dart';
 
 class ShelfDetailScreen extends StatefulWidget {
@@ -158,6 +160,11 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     await _addByBarcode(trimmed);
   }
 
+  bool _is13DigitBarcode(String barcode) {
+    final raw = barcode.replaceAll(RegExp(r'[\s-]'), '');
+    return raw.length == 13 && RegExp(r'^\d+$').hasMatch(raw);
+  }
+
   Future<void> _addByBarcode(String barcode) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -169,29 +176,44 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
       } on BookLookupException catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${e.message}，已先記錄條碼')),
+            SnackBar(content: Text('${e.message}，請手動輸入')),
           );
         }
       }
 
-      BookLookupResult? chosen;
-      if (results.isNotEmpty) {
-        chosen = pickBestMatch(results, barcode);
+      String title;
+      double? price;
+      String? orgProdId;
+      String? condition;
+      String? code13;
+
+      // 查無建檔 → 完整手動表單
+      if (results.isEmpty) {
+        if (!mounted) return;
+        final manual = await showManualBookFormDialog(
+          context,
+          barcode: barcode,
+        );
+        if (manual == null) return;
+        title = manual.title;
+        price = manual.price;
+        condition = manual.condition;
+        orgProdId = null;
+        code13 = ean13FromBarcode(barcode);
+      } else {
+        BookLookupResult? chosen = pickBestMatch(results, barcode);
         if (chosen == null) {
           chosen = await _pickResult(results);
           if (chosen == null) return;
         }
+
+        title = chosen.title;
+        price = chosen.price;
+        orgProdId = chosen.coverProdId;
+        code13 = resolveCode13(scanned: barcode, apiIsbn: chosen.isbn);
       }
 
-      final code13 = resolveCode13(
-        scanned: barcode,
-        apiIsbn: chosen?.isbn,
-      );
-      final title = chosen?.title ?? '';
-      final price = chosen?.price;
-      final orgProdId = chosen?.coverProdId;
-
-      // 1) 同一條碼（含讀冊 18 碼）已存在 → 問是否覆蓋
+      // 1) 同一條碼（含讀冊 18 碼）已存在 → 問是否覆蓋（不強制重選書況）
       final sameBarcode = await _db.findByBarcode(_shelf.id, barcode);
       if (sameBarcode != null) {
         if (!mounted) return;
@@ -223,6 +245,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
           price: price ?? sameBarcode.price,
           code13: code13 ?? sameBarcode.code13,
           orgProdId: orgProdId ?? sameBarcode.orgProdId,
+          condition: condition ?? sameBarcode.condition,
         );
         await _db.updateBook(updated);
         HapticFeedback.mediumImpact();
@@ -282,8 +305,22 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
             );
             return;
           }
-          // action == 'new' → fall through to add
+          // action == 'new' → fall through to add（13 碼再補書況）
         }
+      }
+
+      // 13 碼新增：若尚未從手動表單取得書況，先選書況
+      if (condition == null && _is13DigitBarcode(barcode)) {
+        if (!mounted) return;
+        final priceLabel =
+            price == null ? null : 'NT\$${price.toStringAsFixed(0)}';
+        final picked = await showConditionOnlyDialog(
+          context,
+          title: title.isEmpty ? barcode : title,
+          priceLabel: priceLabel,
+        );
+        if (picked == null) return;
+        condition = picked;
       }
 
       final book = await _db.addBook(
@@ -293,6 +330,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         price: price,
         code13: code13,
         orgProdId: orgProdId,
+        condition: condition,
       );
 
       HapticFeedback.mediumImpact();
@@ -301,13 +339,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         _books = [..._books, book];
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            book.title.isEmpty
-                ? '已新增序號 ${book.seq}（查無書名，可手動編輯）'
-                : '已新增：${book.title}',
-          ),
-        ),
+        SnackBar(content: Text('已新增：${book.title}')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -357,6 +389,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
       text: book.price == null ? '' : book.price!.toStringAsFixed(0),
     );
     final qtyCtrl = TextEditingController(text: '${book.qty}');
+    var condition = book.condition ?? BookCondition.defaultValue;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -381,6 +414,18 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: condition,
+                decoration: const InputDecoration(labelText: '書況'),
+                items: [
+                  for (final c in BookCondition.all)
+                    DropdownMenuItem(value: c, child: Text(c)),
+                ],
+                onChanged: (v) {
+                  if (v != null) condition = v;
+                },
+              ),
+              const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
@@ -392,7 +437,10 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('儲存'),
@@ -414,6 +462,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
       title: titleCtrl.text.trim(),
       price: priceText.isEmpty ? null : double.tryParse(priceText),
       qty: qty < 1 ? 1 : qty,
+      condition: condition,
       clearPrice: priceText.isEmpty,
     );
     titleCtrl.dispose();
@@ -582,7 +631,13 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                             ),
                             subtitle: Text(
                               [
-                                '$priceText · 數量 ${book.qty}',
+                                [
+                                  priceText,
+                                  '數量 ${book.qty}',
+                                  if (book.condition != null &&
+                                      book.condition!.isNotEmpty)
+                                    '書況 ${book.condition}',
+                                ].join(' · '),
                                 '條碼 ${book.barcode}',
                               ].join('\n'),
                             ),

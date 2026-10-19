@@ -24,7 +24,7 @@ class BookshelfDb {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'bookshelf.db'),
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE shelves (
@@ -44,6 +44,7 @@ class BookshelfDb {
             barcode TEXT NOT NULL,
             qty INTEGER NOT NULL DEFAULT 1,
             org_prod_id TEXT,
+            condition TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (shelf_id) REFERENCES shelves (id) ON DELETE CASCADE
           )
@@ -72,6 +73,9 @@ class BookshelfDb {
         }
         if (oldVersion < 3) {
           await db.execute('ALTER TABLE books ADD COLUMN org_prod_id TEXT');
+        }
+        if (oldVersion < 4) {
+          await db.execute('ALTER TABLE books ADD COLUMN condition TEXT');
         }
       },
       onConfigure: (db) async {
@@ -209,6 +213,7 @@ class BookshelfDb {
     double? price,
     String? code13,
     String? orgProdId,
+    String? condition,
     int qty = 1,
   }) async {
     final db = await database;
@@ -222,6 +227,7 @@ class BookshelfDb {
       code13: code13,
       barcode: barcode,
       orgProdId: orgProdId,
+      condition: condition,
       qty: qty < 1 ? 1 : qty,
       createdAt: DateTime.now(),
     );
@@ -240,6 +246,7 @@ class BookshelfDb {
         'barcode': book.barcode,
         'qty': book.qty,
         'org_prod_id': book.orgProdId,
+        'condition': book.condition,
       },
       where: 'id = ?',
       whereArgs: [book.id],

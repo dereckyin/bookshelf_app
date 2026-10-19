@@ -18,6 +18,7 @@ void main() {
         barcode: '978986825375920003',
         qty: 2,
         orgProdId: '11100123456',
+        condition: '良好',
         createdAt: DateTime(2026, 1, 1),
       ),
     ];
@@ -33,6 +34,7 @@ void main() {
     expect(header.join(), contains('序號'));
     expect(header.join(), contains('書名'));
     expect(header.join(), contains('數量'));
+    expect(header.join(), contains('書況'));
     expect(header.join(), contains('條碼'));
     expect(header.join(), isNot(contains('13碼')));
 
@@ -40,5 +42,6 @@ void main() {
     expect(row1.join(), contains('保險法'));
     expect(row1.join(), contains('978986825375920003'));
     expect(row1.join(), contains('2'));
+    expect(row1.join(), contains('良好'));
   });
 }

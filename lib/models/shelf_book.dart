@@ -9,6 +9,7 @@ class ShelfBook {
     required this.barcode,
     this.qty = 1,
     this.orgProdId,
+    this.condition,
     required this.createdAt,
   });
 
@@ -21,6 +22,7 @@ class ShelfBook {
   final String barcode;
   final int qty;
   final String? orgProdId;
+  final String? condition;
   final DateTime createdAt;
 
   /// 讀冊書封圖（有 orgProdId 才有）
@@ -42,9 +44,11 @@ class ShelfBook {
     String? barcode,
     int? qty,
     String? orgProdId,
+    String? condition,
     bool clearPrice = false,
     bool clearCode13 = false,
     bool clearOrgProdId = false,
+    bool clearCondition = false,
   }) {
     return ShelfBook(
       id: id,
@@ -56,6 +60,7 @@ class ShelfBook {
       barcode: barcode ?? this.barcode,
       qty: qty ?? this.qty,
       orgProdId: clearOrgProdId ? null : (orgProdId ?? this.orgProdId),
+      condition: clearCondition ? null : (condition ?? this.condition),
       createdAt: createdAt,
     );
   }
@@ -71,6 +76,7 @@ class ShelfBook {
       'barcode': barcode,
       'qty': qty,
       'org_prod_id': orgProdId,
+      'condition': condition,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -86,6 +92,7 @@ class ShelfBook {
       barcode: map['barcode'] as String,
       qty: (map['qty'] as int?) ?? 1,
       orgProdId: map['org_prod_id'] as String?,
+      condition: map['condition'] as String?,
       createdAt: DateTime.parse(map['created_at'] as String),
     );
   }

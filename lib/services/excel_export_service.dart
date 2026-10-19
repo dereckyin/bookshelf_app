@@ -51,6 +51,7 @@ class ExcelExportService {
       TextCellValue('書名'),
       TextCellValue('價格'),
       TextCellValue('數量'),
+      TextCellValue('書況'),
       TextCellValue('條碼'),
     ]);
 
@@ -62,6 +63,7 @@ class ExcelExportService {
           book.price == null ? '' : book.price!.toStringAsFixed(0),
         ),
         TextCellValue('${book.qty}'),
+        TextCellValue(book.condition ?? ''),
         TextCellValue(book.barcode),
       ]);
     }
