@@ -13,4 +13,14 @@ void main() {
     expect(BookCondition.defaultValue, '全新');
     expect(BookCondition.all, contains(BookCondition.defaultValue));
   });
+
+  test('fromProdRank maps A–E to Chinese labels', () {
+    expect(BookCondition.fromProdRank('A'), '全新');
+    expect(BookCondition.fromProdRank('b'), '近全新');
+    expect(BookCondition.fromProdRank('C'), '良好');
+    expect(BookCondition.fromProdRank('D'), '普通');
+    expect(BookCondition.fromProdRank('E'), '差強人意');
+    expect(BookCondition.fromProdRank('Z'), isNull);
+    expect(BookCondition.fromProdRank(null), isNull);
+  });
 }

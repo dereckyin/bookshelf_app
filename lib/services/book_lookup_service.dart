@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import '../models/book_condition.dart';
 import '../models/shelf_book.dart';
 
 class BookLookupException implements Exception {
@@ -21,14 +22,42 @@ class BookLookupService {
 
   /// 依條碼／ISBN 查書。回傳空列表表示查無資料（不是錯誤）。
   ///
-  /// 讀冊 18 碼貼紙：查詢一律裁成前 13 碼（EAN／ISBN）打 `/search/`；
-  /// 畫面上仍保留掃到的完整 18 碼。
+  /// 讀冊 18 碼貼紙：優先打 `/book/lookup`（LOGCODE → 真實書況／售價）；
+  /// 失敗再裁前 13 碼打 `/search/`。畫面上仍保留掃到的完整條碼。
   Future<List<BookLookupResult>> lookup(String barcode) async {
     final q = barcode.trim();
     if (q.isEmpty) return [];
 
+    final raw = q.replaceAll(RegExp(r'[\s-]'), '');
+    if (RegExp(r'^\d{18}$').hasMatch(raw)) {
+      final byLogcode = await lookupByLogcode(raw);
+      if (byLogcode != null) return [byLogcode];
+    }
+
     final query = ean13FromBarcode(q) ?? q;
     return _search(query);
+  }
+
+  /// 依完整條碼查 PRODUCT（18 LOGCODE／11 PROD_ID／13 EAN）。
+  /// 404／查無回傳 null；網路錯誤拋 [BookLookupException]。
+  Future<BookLookupResult?> lookupByLogcode(String barcode) async {
+    final raw = barcode.trim().replaceAll(RegExp(r'[\s-]'), '');
+    if (raw.isEmpty) return null;
+
+    final uri = ApiConfig.bookLookupUri(raw);
+    late final http.Response response;
+    try {
+      response = await _client.get(uri).timeout(_timeout);
+    } catch (e) {
+      throw BookLookupException('網路連線失敗，請稍後再試');
+    }
+
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) {
+      throw BookLookupException('查詢失敗（${response.statusCode}）');
+    }
+
+    return parseBookLookupResponse(response.body);
   }
 
   Future<List<BookLookupResult>> _search(String q) async {
@@ -46,6 +75,38 @@ class BookLookupService {
 
     return parseSearchResponse(response.body);
   }
+}
+
+/// 解析 `/book/lookup` JSON。
+BookLookupResult? parseBookLookupResponse(String body) {
+  final decoded = json.decode(body);
+  if (decoded is! Map<String, dynamic>) return null;
+
+  final title = decoded['title']?.toString() ?? '';
+  final prodId = decoded['prodId']?.toString() ?? '';
+  if (title.isEmpty && prodId.isEmpty) return null;
+
+  final saleRaw = decoded['salePrice'];
+  double? salePrice;
+  if (saleRaw is num) {
+    salePrice = saleRaw.toDouble();
+  } else if (saleRaw != null) {
+    salePrice = double.tryParse(saleRaw.toString());
+  }
+
+  final org = decoded['orgProdId']?.toString().trim();
+  final isbn = decoded['isbn']?.toString().trim() ??
+      decoded['eanCode']?.toString().trim();
+  final rank = decoded['prodRank']?.toString();
+
+  return BookLookupResult(
+    id: prodId,
+    title: title,
+    orgProdId: (org == null || org.isEmpty) ? null : org,
+    price: salePrice,
+    isbn: (isbn == null || isbn.isEmpty) ? null : isbn,
+    condition: BookCondition.fromProdRank(rank),
+  );
 }
 
 /// 解析搜尋 API JSON，方便單元測試。

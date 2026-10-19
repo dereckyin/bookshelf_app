@@ -93,4 +93,27 @@ void main() {
     expect(picked?.id, '13100013557');
     expect(picked?.price, 2925);
   });
+
+  test('parseBookLookupResponse maps salePrice and prodRank to condition', () {
+    const body = '''
+{
+  "prodId": "13300123456",
+  "orgProdId": "11100123456",
+  "title": "保險法-案例式",
+  "prodRank": "B",
+  "salePrice": 180,
+  "listPrice": 350,
+  "isbn": "9789868253759",
+  "eanCode": "9789868253759",
+  "logcode": "978986825375920003"
+}
+''';
+    final result = parseBookLookupResponse(body);
+    expect(result, isNotNull);
+    expect(result!.title, '保險法-案例式');
+    expect(result.price, 180);
+    expect(result.condition, '近全新');
+    expect(result.orgProdId, '11100123456');
+    expect(result.isbn, '9789868253759');
+  });
 }

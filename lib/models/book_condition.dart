@@ -17,4 +17,22 @@ class BookCondition {
     fair,
     poor,
   ];
+
+  /// PRODUCT.PROD_RANK A–E → 中文書況
+  static String? fromProdRank(String? rank) {
+    switch ((rank ?? '').trim().toUpperCase()) {
+      case 'A':
+        return brandNew;
+      case 'B':
+        return likeNew;
+      case 'C':
+        return good;
+      case 'D':
+        return fair;
+      case 'E':
+        return poor;
+      default:
+        return null;
+    }
+  }
 }

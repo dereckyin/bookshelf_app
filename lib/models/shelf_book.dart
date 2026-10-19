@@ -98,7 +98,7 @@ class ShelfBook {
   }
 }
 
-/// API 搜尋結果候選
+/// API 搜尋／lookup 結果候選
 class BookLookupResult {
   const BookLookupResult({
     required this.id,
@@ -108,6 +108,7 @@ class BookLookupResult {
     this.isbn,
     this.author,
     this.imageUrl,
+    this.condition,
   });
 
   final String id;
@@ -117,6 +118,7 @@ class BookLookupResult {
   final String? isbn;
   final String? author;
   final String? imageUrl;
+  final String? condition;
 
   /// 用於書封：優先 orgProdId，否則用 id
   String? get coverProdId {

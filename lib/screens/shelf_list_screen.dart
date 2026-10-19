@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/book_search_hit.dart';
 import '../models/shelf.dart';
 import '../services/bookshelf_db.dart';
+import '../services/excel_export_service.dart';
 import '../widgets/book_cover.dart';
 import 'shelf_detail_screen.dart';
 
@@ -15,6 +16,7 @@ class ShelfListScreen extends StatefulWidget {
 
 class _ShelfListScreenState extends State<ShelfListScreen> {
   final _db = BookshelfDb.instance;
+  final _export = ExcelExportService();
   final _searchCtrl = TextEditingController();
 
   List<Shelf> _shelves = [];
@@ -22,6 +24,7 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
   bool _loading = true;
   bool _searching = false;
   bool _searchBusy = false;
+  bool _exporting = false;
 
   @override
   void initState() {
@@ -173,6 +176,47 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
     await _openShelf(shelf);
   }
 
+  Future<void> _exportShelves() async {
+    if (_shelves.isEmpty || _exporting) return;
+
+    final selectedIds = await showDialog<Set<String>>(
+      context: context,
+      builder: (ctx) => _ShelfPickDialog(shelves: _shelves),
+    );
+    if (selectedIds == null || selectedIds.isEmpty) return;
+
+    setState(() => _exporting = true);
+    try {
+      final rows = <ExcelExportRow>[];
+      for (final shelf in _shelves) {
+        if (!selectedIds.contains(shelf.id)) continue;
+        final books = await _db.listBooks(shelf.id);
+        for (final book in books) {
+          rows.add(ExcelExportRow(shelfName: shelf.name, book: book));
+        }
+      }
+      if (rows.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('選取的書櫃沒有書籍可匯出')),
+        );
+        return;
+      }
+      final label = selectedIds.length == _shelves.length
+          ? '書櫃清單_全部'
+          : '書櫃清單_多櫃';
+      await _export.exportAndShare(fileLabel: label, rows: rows);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('匯出失敗：$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = _searchCtrl.text.trim();
@@ -192,6 +236,18 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
               )
             : const Text('我的書櫃'),
         actions: [
+          if (!_searching)
+            IconButton(
+              tooltip: '下載書櫃',
+              onPressed: _shelves.isEmpty || _exporting ? null : _exportShelves,
+              icon: _exporting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download),
+            ),
           IconButton(
             tooltip: _searching ? '關閉搜尋' : '搜尋全書',
             onPressed: _shelves.isEmpty && !_searching ? null : _toggleSearch,
@@ -328,6 +384,96 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 選擇要匯出的書櫃；預設全選。
+class _ShelfPickDialog extends StatefulWidget {
+  const _ShelfPickDialog({required this.shelves});
+
+  final List<Shelf> shelves;
+
+  @override
+  State<_ShelfPickDialog> createState() => _ShelfPickDialogState();
+}
+
+class _ShelfPickDialogState extends State<_ShelfPickDialog> {
+  late final Set<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = {for (final s in widget.shelves) s.id};
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allSelected = _selected.length == widget.shelves.length;
+    return AlertDialog(
+      title: const Text('下載書櫃'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CheckboxListTile(
+                value: allSelected,
+                title: const Text('全部選取'),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+                onChanged: (v) {
+                  setState(() {
+                    _selected.clear();
+                    if (v == true) {
+                      _selected.addAll(widget.shelves.map((s) => s.id));
+                    }
+                  });
+                },
+              ),
+              const Divider(),
+              Expanded(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final shelf in widget.shelves)
+                      CheckboxListTile(
+                        value: _selected.contains(shelf.id),
+                        title: Text(shelf.name),
+                        subtitle: Text('${shelf.bookCount} 本'),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (v) {
+                          setState(() {
+                            if (v == true) {
+                              _selected.add(shelf.id);
+                            } else {
+                              _selected.remove(shelf.id);
+                            }
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _selected.isEmpty
+              ? null
+              : () => Navigator.pop(context, Set<String>.from(_selected)),
+          child: const Text('下載 Excel'),
+        ),
+      ],
     );
   }
 }

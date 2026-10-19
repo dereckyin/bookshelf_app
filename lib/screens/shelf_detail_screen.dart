@@ -211,6 +211,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         price = chosen.price;
         orgProdId = chosen.coverProdId;
         code13 = resolveCode13(scanned: barcode, apiIsbn: chosen.isbn);
+        condition = chosen.condition; // 18 碼 lookup 帶入書況
       }
 
       // 1) 同一條碼（含讀冊 18 碼）已存在 → 問是否覆蓋（不強制重選書況）
@@ -502,7 +503,7 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
     }
     setState(() => _busy = true);
     try {
-      await _export.exportAndShare(shelfName: _shelf.name, books: _books);
+      await _export.exportShelfAndShare(shelfName: _shelf.name, books: _books);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
