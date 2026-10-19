@@ -91,13 +91,16 @@ BookLookupResult? parseBookLookupResponse(String body) {
   final prodId = decoded['prodId']?.toString() ?? '';
   if (title.isEmpty && prodId.isEmpty) return null;
 
-  final saleRaw = decoded['salePrice'];
-  double? salePrice;
-  if (saleRaw is num) {
-    salePrice = saleRaw.toDouble();
-  } else if (saleRaw != null) {
-    salePrice = double.tryParse(saleRaw.toString());
+  double? parsePrice(dynamic raw) {
+    if (raw is num) return raw.toDouble();
+    if (raw != null) return double.tryParse(raw.toString());
+    return null;
   }
+
+  // 部分 LOGCODE 列 SALE_PRICE=0，改用 LIST_PRICE（定價）
+  final salePrice = parsePrice(decoded['salePrice']);
+  final listPrice = parsePrice(decoded['listPrice']);
+  final price = (salePrice != null && salePrice > 0) ? salePrice : listPrice;
 
   final org = decoded['orgProdId']?.toString().trim();
   final isbn = decoded['isbn']?.toString().trim() ??
@@ -108,7 +111,7 @@ BookLookupResult? parseBookLookupResponse(String body) {
     id: prodId,
     title: title,
     orgProdId: (org == null || org.isEmpty) ? null : org,
-    price: salePrice,
+    price: price,
     isbn: (isbn == null || isbn.isEmpty) ? null : isbn,
     condition: BookCondition.fromProdRank(rank),
   );

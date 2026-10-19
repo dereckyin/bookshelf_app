@@ -116,4 +116,24 @@ void main() {
     expect(result.orgProdId, '11100123456');
     expect(result.isbn, '9789868253759');
   });
+
+  test('parseBookLookupResponse uses listPrice when salePrice is zero', () {
+    const body = '''
+{
+  "prodId": "81300193687",
+  "orgProdId": "81300193687",
+  "title": "保險法-案例式<一品>",
+  "prodRank": "B",
+  "salePrice": 0,
+  "listPrice": 500,
+  "isbn": "9789868253759",
+  "eanCode": "9789868253759",
+  "logcode": "978986825375920003"
+}
+''';
+    final result = parseBookLookupResponse(body);
+    expect(result, isNotNull);
+    expect(result!.price, 500);
+    expect(result.condition, '近全新');
+  });
 }
