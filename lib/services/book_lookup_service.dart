@@ -23,15 +23,19 @@ class BookLookupService {
   /// 依條碼／ISBN 查書。回傳空列表表示查無資料（不是錯誤）。
   ///
   /// 讀冊 18 碼貼紙：優先打 `/book/lookup`（LOGCODE → 真實書況／售價）；
-  /// 失敗再裁前 13 碼打 `/search/`。畫面上仍保留掃到的完整條碼。
+  /// 查無／逾時／錯誤一律再裁前 13 碼打 `/search/`，避免掃 18 碼完全失敗。
   Future<List<BookLookupResult>> lookup(String barcode) async {
     final q = barcode.trim();
     if (q.isEmpty) return [];
 
     final raw = q.replaceAll(RegExp(r'[\s-]'), '');
     if (RegExp(r'^\d{18}$').hasMatch(raw)) {
-      final byLogcode = await lookupByLogcode(raw);
-      if (byLogcode != null) return [byLogcode];
+      try {
+        final byLogcode = await lookupByLogcode(raw);
+        if (byLogcode != null) return [byLogcode];
+      } catch (_) {
+        // lookup 慢或失敗時仍走 search，不阻斷掃碼
+      }
     }
 
     final query = ean13FromBarcode(q) ?? q;
@@ -47,7 +51,8 @@ class BookLookupService {
     final uri = ApiConfig.bookLookupUri(raw);
     late final http.Response response;
     try {
-      response = await _client.get(uri).timeout(_timeout);
+      // LOGCODE 查庫可能較慢；仍設上限，逾時由 caller fallback search
+      response = await _client.get(uri).timeout(const Duration(seconds: 20));
     } catch (e) {
       throw BookLookupException('網路連線失敗，請稍後再試');
     }
