@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../models/book_search_hit.dart';
+import '../models/member_session.dart';
 import '../models/shelf.dart';
+import '../services/auth_session_service.dart';
 import '../services/bookshelf_db.dart';
 import '../services/excel_export_service.dart';
+import '../services/wecollect_account_service.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/sync_status_chip.dart';
+import 'auth_screen.dart';
 import 'shelf_detail_screen.dart';
+import 'sync_diff_screen.dart';
 
 class ShelfListScreen extends StatefulWidget {
   const ShelfListScreen({super.key});
@@ -17,10 +23,13 @@ class ShelfListScreen extends StatefulWidget {
 class _ShelfListScreenState extends State<ShelfListScreen> {
   final _db = BookshelfDb.instance;
   final _export = ExcelExportService();
+  final _sessionStore = AuthSessionService.instance;
+  final _account = WecollectAccountService();
   final _searchCtrl = TextEditingController();
 
   List<Shelf> _shelves = [];
   List<BookSearchHit> _hits = [];
+  MemberSession? _session;
   bool _loading = true;
   bool _searching = false;
   bool _searchBusy = false;
@@ -30,11 +39,34 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
   void initState() {
     super.initState();
     _searchCtrl.addListener(_onSearchChanged);
+    _sessionStore.revision.addListener(_onSessionRevision);
     _reload();
+    _restoreSession();
+  }
+
+  void _onSessionRevision() {
+    _restoreSession();
+  }
+
+  Future<void> _restoreSession() async {
+    final saved = await _sessionStore.load();
+    if (saved == null) {
+      if (mounted) setState(() => _session = null);
+      return;
+    }
+    final ok = await _account.checkLogin(saved);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _session = saved);
+    } else {
+      await _sessionStore.clear();
+      setState(() => _session = null);
+    }
   }
 
   @override
   void dispose() {
+    _sessionStore.revision.removeListener(_onSessionRevision);
     _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
@@ -176,6 +208,56 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
     await _openShelf(shelf);
   }
 
+  Future<void> _openAuth() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const AuthScreen(allowSkip: true),
+      ),
+    );
+    await _restoreSession();
+  }
+
+  Future<void> _openSync() async {
+    final session = _session;
+    if (session == null) {
+      await _openAuth();
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SyncDiffScreen(session: session),
+      ),
+    );
+    await _reload();
+  }
+
+  Future<void> _logout() async {
+    final session = _session;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('登出'),
+        content: const Text('登出後本機書櫃仍保留，下次可再授權上傳。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('登出'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (session != null) {
+      await _account.logout(session);
+    }
+    await _sessionStore.clear();
+    if (mounted) setState(() => _session = null);
+  }
+
   Future<void> _exportShelves() async {
     if (_shelves.isEmpty || _exporting) return;
 
@@ -234,7 +316,7 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
                 ),
                 textInputAction: TextInputAction.search,
               )
-            : const Text('我的書櫃'),
+            : const Text('冊格子書櫃'),
         actions: [
           if (!_searching)
             IconButton(
@@ -264,38 +346,43 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
             ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _shelves.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.shelves,
-                          size: 64,
-                          color: Theme.of(context).colorScheme.outline,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          '還沒有書櫃\n依地點建立一個，再開始掃書',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : showResults
-                  ? _buildSearchBody(query)
-                  : RefreshIndicator(
-                      onRefresh: _reload,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-                        itemCount: _shelves.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 8),
-                        itemBuilder: (context, index) {
+          : Column(
+              children: [
+                if (!_searching) _buildAccountBanner(),
+                Expanded(
+                  child: _shelves.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.shelves,
+                                  size: 64,
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  '還沒有書櫃\n依地點建立一個，再開始掃書',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : showResults
+                          ? _buildSearchBody(query)
+                          : RefreshIndicator(
+                              onRefresh: _reload,
+                              child: ListView.separated(
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 12, 12, 88),
+                                itemCount: _shelves.length,
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (context, index) {
                           final shelf = _shelves[index];
                           return Card(
                             child: ListTile(
@@ -324,8 +411,80 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
                             ),
                           );
                         },
-                      ),
-                    ),
+                              ),
+                            ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildAccountBanner() {
+    final scheme = Theme.of(context).colorScheme;
+    final loggedIn = _session != null;
+    final name = _session?.name?.trim();
+    return Material(
+      color: loggedIn ? scheme.primaryContainer : scheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          children: [
+            Icon(
+              loggedIn ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+              color: loggedIn
+                  ? scheme.onPrimaryContainer
+                  : scheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    loggedIn
+                        ? (name != null && name.isNotEmpty
+                            ? '已登入：$name'
+                            : '已登入冊格子')
+                        : '尚未登入冊格子',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: loggedIn
+                              ? scheme.onPrimaryContainer
+                              : scheme.onSurface,
+                        ),
+                  ),
+                  Text(
+                    loggedIn
+                        ? '可檢查差異後再上傳或匯入收藏'
+                        : '掃書可離線；要同步收藏請先登入',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: loggedIn
+                              ? scheme.onPrimaryContainer
+                              : scheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            if (loggedIn) ...[
+              FilledButton.tonal(
+                onPressed: _openSync,
+                child: const Text('同步收藏'),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                tooltip: '登出',
+                onPressed: _logout,
+                icon: const Icon(Icons.logout),
+              ),
+            ] else
+              FilledButton(
+                onPressed: _openAuth,
+                child: const Text('登入'),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -372,12 +531,20 @@ class _ShelfListScreenState extends State<ShelfListScreen> {
                     )
                   : null,
             ),
-            subtitle: Text(
-              [
-                '書櫃：${hit.shelfName}',
-                '$priceText · 數量 ${book.qty}',
-                '條碼 ${book.barcode}',
-              ].join('\n'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                SyncStatusChip(status: book.syncStatus),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    '書櫃：${hit.shelfName}',
+                    '$priceText · 數量 ${book.qty}',
+                    '條碼 ${book.barcode}',
+                  ].join('\n'),
+                ),
+              ],
             ),
             isThreeLine: true,
             onTap: () => _openHit(hit),

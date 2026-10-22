@@ -11,6 +11,7 @@ import '../services/bookshelf_db.dart';
 import '../services/excel_export_service.dart';
 import '../widgets/book_cover.dart';
 import '../widgets/manual_book_form_dialog.dart';
+import '../widgets/sync_status_chip.dart';
 import 'barcode_camera_scan_screen.dart';
 
 class ShelfDetailScreen extends StatefulWidget {
@@ -190,6 +191,8 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
       String? orgProdId;
       String? condition;
       String? code13;
+      String? prodId;
+      var syncStatus = SyncStatus.pending;
 
       // 查無建檔 → 完整手動表單
       if (results.isEmpty) {
@@ -204,6 +207,8 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         condition = manual.condition;
         orgProdId = null;
         code13 = ean13FromBarcode(barcode);
+        prodId = null;
+        syncStatus = SyncStatus.unlisted;
       } else {
         BookLookupResult? chosen = pickBestMatch(results, barcode);
         if (chosen == null) {
@@ -216,6 +221,10 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         orgProdId = chosen.coverProdId;
         code13 = resolveCode13(scanned: barcode, apiIsbn: chosen.isbn);
         condition = chosen.condition; // 18 碼 lookup 帶入書況
+        final org = chosen.orgProdId?.trim();
+        final id = chosen.id.trim();
+        prodId = (org != null && org.isNotEmpty) ? org : (id.isEmpty ? null : id);
+        syncStatus = SyncStatus.pending;
       }
 
       // 1) 同一條碼（含讀冊 18 碼）已存在 → 問是否覆蓋（不強制重選書況）
@@ -251,6 +260,10 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
           code13: code13 ?? sameBarcode.code13,
           orgProdId: orgProdId ?? sameBarcode.orgProdId,
           condition: condition ?? sameBarcode.condition,
+          prodId: prodId ?? sameBarcode.prodId,
+          syncStatus: syncStatus == SyncStatus.unlisted
+              ? SyncStatus.unlisted
+              : SyncStatus.pending,
         );
         await _db.updateBook(updated);
         HapticFeedback.mediumImpact();
@@ -336,6 +349,8 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
         code13: code13,
         orgProdId: orgProdId,
         condition: condition,
+        prodId: prodId,
+        syncStatus: syncStatus,
       );
 
       HapticFeedback.mediumImpact();
@@ -634,18 +649,27 @@ class _ShelfDetailScreenState extends State<ShelfDetailScreen> {
                                     )
                                   : null,
                             ),
-                            subtitle: Text(
-                              [
-                                [
-                                  priceText,
-                                  '數量 ${book.qty}',
-                                  if (book.condition != null &&
-                                      book.condition!.isNotEmpty)
-                                    '書況 ${book.condition}',
-                                ].join(' · '),
-                                '條碼 ${book.barcode}',
-                              ].join('\n'),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 4),
+                                SyncStatusChip(status: book.syncStatus),
+                                const SizedBox(height: 4),
+                                Text(
+                                  [
+                                    [
+                                      priceText,
+                                      '數量 ${book.qty}',
+                                      if (book.condition != null &&
+                                          book.condition!.isNotEmpty)
+                                        '書況 ${book.condition}',
+                                    ].join(' · '),
+                                    '條碼 ${book.barcode}',
+                                  ].join('\n'),
+                                ),
+                              ],
                             ),
+                            isThreeLine: true,
                             trailing: PopupMenuButton<String>(
                               onSelected: (value) {
                                 if (value == 'edit') _editBook(book);

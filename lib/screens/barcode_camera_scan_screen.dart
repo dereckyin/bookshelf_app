@@ -23,10 +23,14 @@ class BarcodeCameraScanScreen extends StatefulWidget {
     super.key,
     this.title = '掃描書籍條碼',
     this.formats = kBookBarcodeFormats,
+    this.acceptRawQr = false,
   });
 
   final String title;
   final List<BarcodeFormat> formats;
+
+  /// true：接受 QR 原文（授權登入）；false：走書籍條碼信任／重解邏輯
+  final bool acceptRawQr;
 
   @override
   State<BarcodeCameraScanScreen> createState() =>
@@ -43,7 +47,8 @@ class _BarcodeCameraScanScreenState extends State<BarcodeCameraScanScreen> {
     detectionSpeed: DetectionSpeed.normal,
     facing: CameraFacing.back,
     formats: widget.formats,
-    returnImage: true,
+    // 授權 QR 不需截幀重解；書籍條碼才要
+    returnImage: !widget.acceptRawQr,
   );
 
   bool _handled = false;
@@ -118,6 +123,17 @@ class _BarcodeCameraScanScreenState extends State<BarcodeCameraScanScreen> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
+
+    if (widget.acceptRawQr) {
+      for (final barcode in capture.barcodes) {
+        final raw = barcode.rawValue?.trim() ?? '';
+        if (raw.isEmpty) continue;
+        _finish(raw);
+        return;
+      }
+      return;
+    }
+
     final trusted = trustedMlKitBookBarcode(capture.barcodes);
     if (trusted != null) {
       _finish(trusted);
@@ -226,8 +242,8 @@ class _BarcodeCameraScanScreenState extends State<BarcodeCameraScanScreen> {
           IgnorePointer(
             child: Center(
               child: Container(
-                width: 260,
-                height: 160,
+                width: widget.acceptRawQr ? 240 : 260,
+                height: widget.acceptRawQr ? 240 : 160,
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.amber, width: 3),
                   borderRadius: BorderRadius.circular(12),
@@ -240,9 +256,11 @@ class _BarcodeCameraScanScreenState extends State<BarcodeCameraScanScreen> {
             right: 0,
             bottom: 48,
             child: Text(
-              _thorough
-                  ? '這張標比較難讀，請再對準框內停一下'
-                  : '將書籍條碼或讀冊物流標籤對準框內',
+              widget.acceptRawQr
+                  ? '將網頁上的授權 QR 對準框內'
+                  : (_thorough
+                      ? '這張標比較難讀，請再對準框內停一下'
+                      : '將書籍條碼或讀冊物流標籤對準框內'),
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,

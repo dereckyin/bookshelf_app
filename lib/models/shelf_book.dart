@@ -1,3 +1,23 @@
+/// 與收藏同步狀態：pending＝未同步，synced＝已在收藏，unlisted＝對不到書目
+enum SyncStatus {
+  pending,
+  synced,
+  unlisted;
+
+  static SyncStatus fromDb(String? raw) {
+    switch (raw) {
+      case 'synced':
+        return SyncStatus.synced;
+      case 'unlisted':
+        return SyncStatus.unlisted;
+      default:
+        return SyncStatus.pending;
+    }
+  }
+
+  String get dbValue => name;
+}
+
 class ShelfBook {
   const ShelfBook({
     required this.id,
@@ -10,6 +30,9 @@ class ShelfBook {
     this.qty = 1,
     this.orgProdId,
     this.condition,
+    this.prodId,
+    this.collectSuuid,
+    this.syncStatus = SyncStatus.pending,
     required this.createdAt,
   });
 
@@ -23,6 +46,9 @@ class ShelfBook {
   final int qty;
   final String? orgProdId;
   final String? condition;
+  final String? prodId;
+  final String? collectSuuid;
+  final SyncStatus syncStatus;
   final DateTime createdAt;
 
   /// 讀冊書封圖（有 orgProdId 才有）
@@ -45,10 +71,15 @@ class ShelfBook {
     int? qty,
     String? orgProdId,
     String? condition,
+    String? prodId,
+    String? collectSuuid,
+    SyncStatus? syncStatus,
     bool clearPrice = false,
     bool clearCode13 = false,
     bool clearOrgProdId = false,
     bool clearCondition = false,
+    bool clearProdId = false,
+    bool clearCollectSuuid = false,
   }) {
     return ShelfBook(
       id: id,
@@ -61,6 +92,10 @@ class ShelfBook {
       qty: qty ?? this.qty,
       orgProdId: clearOrgProdId ? null : (orgProdId ?? this.orgProdId),
       condition: clearCondition ? null : (condition ?? this.condition),
+      prodId: clearProdId ? null : (prodId ?? this.prodId),
+      collectSuuid:
+          clearCollectSuuid ? null : (collectSuuid ?? this.collectSuuid),
+      syncStatus: syncStatus ?? this.syncStatus,
       createdAt: createdAt,
     );
   }
@@ -77,6 +112,9 @@ class ShelfBook {
       'qty': qty,
       'org_prod_id': orgProdId,
       'condition': condition,
+      'prod_id': prodId,
+      'collect_suuid': collectSuuid,
+      'sync_status': syncStatus.dbValue,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -93,6 +131,9 @@ class ShelfBook {
       qty: (map['qty'] as int?) ?? 1,
       orgProdId: map['org_prod_id'] as String?,
       condition: map['condition'] as String?,
+      prodId: map['prod_id'] as String?,
+      collectSuuid: map['collect_suuid'] as String?,
+      syncStatus: SyncStatus.fromDb(map['sync_status'] as String?),
       createdAt: DateTime.parse(map['created_at'] as String),
     );
   }

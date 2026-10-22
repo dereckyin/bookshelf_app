@@ -1,0 +1,219 @@
+import '../models/member_session.dart';
+import '../models/shelf_book.dart';
+import '../models/sync_diff.dart';
+import 'book_lookup_service.dart';
+import 'bookshelf_db.dart';
+import 'wecollect_collection_service.dart';
+
+class SyncDiffService {
+  SyncDiffService({
+    BookshelfDb? db,
+    BookLookupService? lookup,
+    WecollectCollectionService? collection,
+  })  : _db = db ?? BookshelfDb.instance,
+        _lookup = lookup ?? BookLookupService(),
+        _collection = collection ?? WecollectCollectionService();
+
+  final BookshelfDb _db;
+  final BookLookupService _lookup;
+  final WecollectCollectionService _collection;
+
+  static const defaultRemoteShelfName = '冊格子';
+
+  Future<SyncDiff> buildDiff(MemberSession session) async {
+    final shelves = await _db.listShelves();
+    final shelfById = {for (final s in shelves) s.id: s};
+
+    final localBooks = <ShelfBook>[];
+    for (final s in shelves) {
+      localBooks.addAll(await _db.listBooks(s.id));
+    }
+
+    final remote = await _collection.fetchAllCollections(session);
+
+    final remoteByKey = <String, RemoteCollection>{};
+    for (final c in remote) {
+      final key = _key(prodId: c.productinfoId, ean: c.ean);
+      if (key != null) remoteByKey.putIfAbsent(key, () => c);
+    }
+
+    final localOnly = <LocalSyncItem>[];
+    final both = <BothSyncItem>[];
+    final matchedRemoteKeys = <String>{};
+
+    for (final book in localBooks) {
+      final shelfName = shelfById[book.shelfId]?.name ?? '';
+      var prodId = book.prodId?.trim();
+      if (prodId == null || prodId.isEmpty) {
+        prodId = await _resolveProdId(book);
+        if (prodId != null) {
+          await _db.updateBook(
+            book.copyWith(prodId: prodId, syncStatus: book.syncStatus),
+          );
+        }
+      }
+
+      final key = _key(prodId: prodId, ean: book.code13 ?? '');
+      if (key != null && remoteByKey.containsKey(key)) {
+        matchedRemoteKeys.add(key);
+        final r = remoteByKey[key]!;
+        both.add(
+          BothSyncItem(
+            title: book.title.isNotEmpty ? book.title : r.targetName,
+            prodId: r.productinfoId,
+            ean: r.ean.isNotEmpty ? r.ean : (book.code13 ?? ''),
+          ),
+        );
+        continue;
+      }
+
+      if (prodId == null || prodId.isEmpty) {
+        // 對不到書目：不算可上傳，仍標 unlisted
+        if (book.syncStatus != SyncStatus.unlisted) {
+          await _db.updateBook(book.copyWith(syncStatus: SyncStatus.unlisted));
+        }
+        continue;
+      }
+
+      localOnly.add(
+        LocalSyncItem(book: book, shelfName: shelfName, prodId: prodId),
+      );
+    }
+
+    final remoteOnly = <RemoteSyncItem>[];
+    for (final entry in remoteByKey.entries) {
+      if (matchedRemoteKeys.contains(entry.key)) continue;
+      final c = entry.value;
+      // 略過本機已用 collect_suuid 標記的
+      final already = localBooks.any(
+        (b) =>
+            b.collectSuuid != null &&
+            b.collectSuuid == c.suuid,
+      );
+      if (already) continue;
+
+      remoteOnly.add(
+        RemoteSyncItem(
+          collectSuuid: c.suuid,
+          prodId: c.productinfoId,
+          title: c.targetName,
+          ean: c.ean,
+          orgProdId: c.orgProdId,
+          categories: c.category,
+        ),
+      );
+    }
+
+    return SyncDiff(
+      localOnly: localOnly,
+      remoteOnly: remoteOnly,
+      both: both,
+    );
+  }
+
+  Future<int> uploadLocalOnly({
+    required MemberSession session,
+    required List<LocalSyncItem> items,
+  }) async {
+    var ok = 0;
+    for (final item in items) {
+      try {
+        final created = await _collection.collectByProdId(
+          session: session,
+          prodId: item.prodId,
+          category: item.shelfName.trim().isEmpty
+              ? const []
+              : [item.shelfName.trim()],
+        );
+        final updated = item.book.copyWith(
+          prodId: item.prodId,
+          collectSuuid: created?.suuid,
+          syncStatus: SyncStatus.synced,
+        );
+        await _db.updateBook(updated);
+        ok++;
+      } catch (_) {
+        // 單本失敗不中斷
+      }
+    }
+    return ok;
+  }
+
+  Future<int> importRemoteOnly({
+    required List<RemoteSyncItem> items,
+  }) async {
+    var ok = 0;
+    final shelves = await _db.listShelves();
+    final byName = {for (final s in shelves) s.name: s};
+
+    for (final item in items) {
+      try {
+        final shelfName = item.categories.isNotEmpty
+            ? item.categories.first
+            : defaultRemoteShelfName;
+        var shelf = byName[shelfName];
+        if (shelf == null) {
+          shelf = await _db.createShelf(shelfName);
+          byName[shelfName] = shelf;
+        }
+
+        final barcode = item.ean.isNotEmpty ? item.ean : item.prodId;
+        final existing = await _db.findByProdIdOrEan(
+          prodId: item.prodId,
+          ean: item.ean,
+        );
+        if (existing != null) continue;
+
+        await _db.addBook(
+          shelfId: shelf.id,
+          barcode: barcode,
+          title: item.title,
+          code13: item.ean.length == 13 ? item.ean : null,
+          orgProdId: item.orgProdId,
+          prodId: item.prodId,
+          collectSuuid: item.collectSuuid,
+          syncStatus: SyncStatus.synced,
+        );
+        ok++;
+      } catch (_) {}
+    }
+    return ok;
+  }
+
+  Future<String?> _resolveProdId(ShelfBook book) async {
+    final existing = book.prodId?.trim();
+    if (existing != null && existing.isNotEmpty) return existing;
+
+    final org = book.orgProdId?.trim();
+    // 目錄版 org 常可當 productinfo_id
+    if (org != null &&
+        org.isNotEmpty &&
+        (org.startsWith('111') || org.startsWith('131'))) {
+      return org;
+    }
+
+    final q = book.code13?.trim().isNotEmpty == true
+        ? book.code13!.trim()
+        : book.barcode.trim();
+    if (q.isEmpty) return null;
+    try {
+      final results = await _lookup.lookup(q);
+      if (results.isEmpty) return null;
+      final best = results.first;
+      final id = best.orgProdId?.trim().isNotEmpty == true
+          ? best.orgProdId!.trim()
+          : best.id.trim();
+      return id.isEmpty ? null : id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _key({String? prodId, String? ean}) {
+    final p = prodId?.trim() ?? '';
+    if (p.isNotEmpty) return 'p:$p';
+    final e = (ean ?? '').replaceAll(RegExp(r'[\s-]'), '');
+    if (e.length >= 10) return 'e:$e';
+    return null;
+  }
+}

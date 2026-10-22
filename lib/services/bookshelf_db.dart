@@ -24,7 +24,7 @@ class BookshelfDb {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       p.join(dbPath, 'bookshelf.db'),
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE shelves (
@@ -45,6 +45,9 @@ class BookshelfDb {
             qty INTEGER NOT NULL DEFAULT 1,
             org_prod_id TEXT,
             condition TEXT,
+            prod_id TEXT,
+            collect_suuid TEXT,
+            sync_status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
             FOREIGN KEY (shelf_id) REFERENCES shelves (id) ON DELETE CASCADE
           )
@@ -57,6 +60,9 @@ class BookshelfDb {
         );
         await db.execute(
           'CREATE INDEX idx_books_code13 ON books (shelf_id, code13)',
+        );
+        await db.execute(
+          'CREATE INDEX idx_books_prod ON books (prod_id)',
         );
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -76,6 +82,16 @@ class BookshelfDb {
         }
         if (oldVersion < 4) {
           await db.execute('ALTER TABLE books ADD COLUMN condition TEXT');
+        }
+        if (oldVersion < 5) {
+          await db.execute('ALTER TABLE books ADD COLUMN prod_id TEXT');
+          await db.execute('ALTER TABLE books ADD COLUMN collect_suuid TEXT');
+          await db.execute(
+            "ALTER TABLE books ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'pending'",
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_books_prod ON books (prod_id)',
+          );
         }
       },
       onConfigure: (db) async {
@@ -206,6 +222,34 @@ class BookshelfDb {
     return ShelfBook.fromMap(rows.first);
   }
 
+  Future<ShelfBook?> findByProdIdOrEan({
+    String? prodId,
+    String? ean,
+  }) async {
+    final db = await database;
+    final p = prodId?.trim() ?? '';
+    if (p.isNotEmpty) {
+      final rows = await db.query(
+        'books',
+        where: 'prod_id = ?',
+        whereArgs: [p],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) return ShelfBook.fromMap(rows.first);
+    }
+    final e = (ean ?? '').replaceAll(RegExp(r'[\s-]'), '');
+    if (e.isNotEmpty) {
+      final rows = await db.query(
+        'books',
+        where: 'code13 = ? OR barcode = ?',
+        whereArgs: [e, e],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) return ShelfBook.fromMap(rows.first);
+    }
+    return null;
+  }
+
   Future<ShelfBook> addBook({
     required String shelfId,
     required String barcode,
@@ -214,6 +258,9 @@ class BookshelfDb {
     String? code13,
     String? orgProdId,
     String? condition,
+    String? prodId,
+    String? collectSuuid,
+    SyncStatus syncStatus = SyncStatus.pending,
     int qty = 1,
   }) async {
     final db = await database;
@@ -228,6 +275,9 @@ class BookshelfDb {
       barcode: barcode,
       orgProdId: orgProdId,
       condition: condition,
+      prodId: prodId,
+      collectSuuid: collectSuuid,
+      syncStatus: syncStatus,
       qty: qty < 1 ? 1 : qty,
       createdAt: DateTime.now(),
     );
@@ -247,6 +297,9 @@ class BookshelfDb {
         'qty': book.qty,
         'org_prod_id': book.orgProdId,
         'condition': book.condition,
+        'prod_id': book.prodId,
+        'collect_suuid': book.collectSuuid,
+        'sync_status': book.syncStatus.dbValue,
       },
       where: 'id = ?',
       whereArgs: [book.id],

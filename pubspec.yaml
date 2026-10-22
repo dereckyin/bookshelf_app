@@ -1,5 +1,5 @@
 name: bookshelf_app
-description: "讀冊書櫃：掃條碼建櫃、匯出 Excel"
+description: "冊格子書櫃：掃條碼建櫃、與冊格子收藏同步、匯出 Excel"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -21,6 +21,9 @@ dependencies:
   excel: ^4.0.6
   share_plus: ^10.1.4
   uuid: ^4.5.1
+  flutter_secure_storage: ^9.2.4
+  url_launcher: ^6.3.1
+  app_links: ^6.4.0
 
 dev_dependencies:
   flutter_test:

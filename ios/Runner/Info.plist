@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>讀冊書櫃</string>
+	<string>冊格子書櫃</string>
 	<key>NSCameraUsageDescription</key>
 	<string>掃書籍條碼與讀冊物流標籤，整理書櫃藏書</string>
 	<key>CFBundleExecutable</key>
@@ -47,5 +47,18 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>fun.wecollect.bookshelf.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>wecollect-bookshelf</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

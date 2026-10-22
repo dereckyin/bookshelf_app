@@ -15,7 +15,7 @@ void main() {
     // CircularProgressIndicator 會一直動畫，不能用 pumpAndSettle。
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('我的書櫃'), findsOneWidget);
+    expect(find.text('冊格子書櫃'), findsOneWidget);
     expect(find.text('新增書櫃'), findsOneWidget);
   });
 }
