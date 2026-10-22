@@ -9,7 +9,7 @@ import '../services/wecollect_account_service.dart';
 import 'barcode_camera_scan_screen.dart';
 import 'shelf_list_screen.dart';
 
-/// 冊格子授權：瀏覽器登入回呼為主；掃 QR／短碼為備援
+/// 冊格子授權：瀏覽器登入為主；掃 QR／短碼收在備援區
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key, this.allowSkip = true});
 
@@ -43,7 +43,6 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   void _onSessionChanged() {
-    // 瀏覽器 deep link 登入成功後關閉本頁
     if (_busy || _finished) return;
     _session.load().then((s) {
       if (s != null && mounted && !_finished) {
@@ -131,6 +130,8 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('登入冊格子'),
@@ -142,81 +143,218 @@ class _AuthScreenState extends State<AuthScreen> {
             ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text('用瀏覽器登入', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 4),
-          Text(
-            '會開啟手機瀏覽器登入冊格子，完成後按「開啟冊格子書櫃」回到本 App。書櫃資料仍留在手機。',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+          children: [
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Icon(
+                  Icons.menu_book_rounded,
+                  size: 40,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _busy ? null : _openBrowserLogin,
-            icon: const Icon(Icons.open_in_browser),
-            label: const Text('用瀏覽器登入冊格子'),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'wecollect.fun/user/bookshelf-link',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 28),
-          Text('其他方式', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 4),
-          Text(
-            '若有第二螢幕可掃 QR，或手動輸入短碼。',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _busy ? null : _scanQr,
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('掃描授權 QR'),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _codeCtrl,
-            textCapitalization: TextCapitalization.characters,
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
-              LengthLimitingTextInputFormatter(12),
-            ],
-            decoration: const InputDecoration(
-              labelText: '短碼',
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
-            enabled: !_busy,
-            onSubmitted: (_) => _loginCode(_codeCtrl.text),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: _busy ? null : () => _loginCode(_codeCtrl.text),
-            child: _busy
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('用短碼登入'),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Text(
-              _error!,
-              style: TextStyle(color: theme.colorScheme.error),
+              '冊格子書櫃',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
+            const SizedBox(height: 8),
+            Text(
+              '用手機瀏覽器登入冊格子後，再回到本 App 完成授權。\n書櫃資料仍保存在這支手機。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 28),
+            _StepRow(
+              index: 1,
+              text: '開啟瀏覽器並登入冊格子',
+              scheme: scheme,
+            ),
+            const SizedBox(height: 10),
+            _StepRow(
+              index: 2,
+              text: '在網頁按「開啟冊格子書櫃」',
+              scheme: scheme,
+            ),
+            const SizedBox(height: 10),
+            _StepRow(
+              index: 3,
+              text: '回到 App，即可同步收藏',
+              scheme: scheme,
+            ),
+            const SizedBox(height: 28),
+            FilledButton.icon(
+              onPressed: _busy ? null : _openBrowserLogin,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                textStyle: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              icon: _busy
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.open_in_browser),
+              label: Text(_busy ? '正在開啟…' : '用瀏覽器登入冊格子'),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '授權頁 wecollect.fun/user/bookshelf-link',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: scheme.error),
+              ),
+            ],
+            const SizedBox(height: 36),
+            Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(top: 4, bottom: 8),
+                title: Text(
+                  '無法開啟 App 時',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                children: [
+                  Text(
+                    '可改用下方短碼，或用另一台裝置顯示 QR 再掃描。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _scanQr,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: const Text('掃描授權 QR'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _codeCtrl,
+                    textCapitalization: TextCapitalization.characters,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'[A-Za-z0-9]'),
+                      ),
+                      LengthLimitingTextInputFormatter(12),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: '短碼',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    enabled: !_busy,
+                    onSubmitted: (_) => _loginCode(_codeCtrl.text),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton(
+                    onPressed:
+                        _busy ? null : () => _loginCode(_codeCtrl.text),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    child: const Text('用短碼登入'),
+                  ),
+                ],
+              ),
+            ),
+            if (widget.allowSkip) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton(
+                  onPressed: _busy ? null : _skip,
+                  child: Text(
+                    '先不登入，離線使用書櫃',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _StepRow extends StatelessWidget {
+  const _StepRow({
+    required this.index,
+    required this.text,
+    required this.scheme,
+  });
+
+  final int index;
+  final String text;
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.secondaryContainer,
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            '$index',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: scheme.onSecondaryContainer,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
