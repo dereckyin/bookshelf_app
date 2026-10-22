@@ -56,7 +56,7 @@ class _SyncDiffScreenState extends State<SyncDiffScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('上傳到收藏'),
         content: Text(
-          '將在收藏新增 ${diff.localOnly.length} 本（只新增，不改已有收藏）。確定？',
+          '將在收藏新增 ${diff.localOnly.length} 本（只新增；不改已有收藏與分類）。確定？',
         ),
         actions: [
           TextButton(
@@ -204,8 +204,8 @@ class _SyncDiffScreenState extends State<SyncDiffScreen> {
                                   ),
                                   subtitle: Text(
                                     item.categories.isEmpty
-                                        ? '會放進書櫃「冊格子」'
-                                        : '書櫃：${item.categories.first}',
+                                        ? '會放進書櫃「收藏」'
+                                        : '會放進書櫃「收藏」・分類：${item.categories.join('、')}',
                                   ),
                                 ),
                             ],

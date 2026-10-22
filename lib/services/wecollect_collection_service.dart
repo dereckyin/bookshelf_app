@@ -84,12 +84,23 @@ class WecollectCollectionService {
   }
 
   /// 上傳一本書（只新增／upsert 收藏，不刪）
+  ///
+  /// [includeCategory] 為 false 時不帶 category，避免蓋掉網站既有分類。
   Future<RemoteCollection?> collectByProdId({
     required MemberSession session,
     required String prodId,
-    required List<String> category,
+    List<String> category = const [],
+    bool includeCategory = false,
   }) async {
     final uri = ApiConfig.socialUri('/memberFunctions/collection/prod');
+    final collection = <String, dynamic>{
+      'owned': true,
+      'open': '0',
+      'status_flg': 'A',
+    };
+    if (includeCategory) {
+      collection['category'] = category;
+    }
     final response = await _client
         .post(
           uri,
@@ -97,12 +108,7 @@ class WecollectCollectionService {
           body: jsonEncode({
             'memberAuth': session.memberAuth,
             'prod_id': prodId,
-            'collection': {
-              'owned': true,
-              'open': '0',
-              'status_flg': 'A',
-              'category': category,
-            },
+            'collection': collection,
           }),
         )
         .timeout(_timeout);

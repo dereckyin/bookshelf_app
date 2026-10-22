@@ -18,7 +18,8 @@ class SyncDiffService {
   final BookLookupService _lookup;
   final WecollectCollectionService _collection;
 
-  static const defaultRemoteShelfName = '冊格子';
+  /// 從收藏匯入時的預設書櫃（不把收藏分類拆成手機書櫃）
+  static const defaultImportShelfName = '收藏';
 
   Future<SyncDiff> buildDiff(MemberSession session) async {
     final shelves = await _db.listShelves();
@@ -31,15 +32,19 @@ class SyncDiffService {
 
     final remote = await _collection.fetchAllCollections(session);
 
-    final remoteByKey = <String, RemoteCollection>{};
+    // 同時用 prodId／EAN 建索引，避免 id 格式不一致就誤判成「只在一邊」
+    final remoteByProd = <String, RemoteCollection>{};
+    final remoteByEan = <String, RemoteCollection>{};
     for (final c in remote) {
-      final key = _key(prodId: c.productinfoId, ean: c.ean);
-      if (key != null) remoteByKey.putIfAbsent(key, () => c);
+      final p = c.productinfoId.trim();
+      if (p.isNotEmpty) remoteByProd.putIfAbsent(p, () => c);
+      final e = _normalizeEan(c.ean);
+      if (e != null) remoteByEan.putIfAbsent(e, () => c);
     }
 
     final localOnly = <LocalSyncItem>[];
     final both = <BothSyncItem>[];
-    final matchedRemoteKeys = <String>{};
+    final matchedRemoteSuuids = <String>{};
 
     for (final book in localBooks) {
       final shelfName = shelfById[book.shelfId]?.name ?? '';
@@ -53,15 +58,33 @@ class SyncDiffService {
         }
       }
 
-      final key = _key(prodId: prodId, ean: book.code13 ?? '');
-      if (key != null && remoteByKey.containsKey(key)) {
-        matchedRemoteKeys.add(key);
-        final r = remoteByKey[key]!;
+      final remoteHit = _matchRemote(
+        prodId: prodId,
+        ean: book.code13 ?? book.barcode,
+        byProd: remoteByProd,
+        byEan: remoteByEan,
+      );
+      if (remoteHit != null) {
+        matchedRemoteSuuids.add(remoteHit.suuid);
+        if (book.syncStatus != SyncStatus.synced ||
+            book.collectSuuid != remoteHit.suuid) {
+          await _db.updateBook(
+            book.copyWith(
+              prodId: remoteHit.productinfoId.isNotEmpty
+                  ? remoteHit.productinfoId
+                  : prodId,
+              collectSuuid: remoteHit.suuid,
+              syncStatus: SyncStatus.synced,
+            ),
+          );
+        }
         both.add(
           BothSyncItem(
-            title: book.title.isNotEmpty ? book.title : r.targetName,
-            prodId: r.productinfoId,
-            ean: r.ean.isNotEmpty ? r.ean : (book.code13 ?? ''),
+            title: book.title.isNotEmpty ? book.title : remoteHit.targetName,
+            prodId: remoteHit.productinfoId,
+            ean: remoteHit.ean.isNotEmpty
+                ? remoteHit.ean
+                : (book.code13 ?? ''),
           ),
         );
         continue;
@@ -81,14 +104,12 @@ class SyncDiffService {
     }
 
     final remoteOnly = <RemoteSyncItem>[];
-    for (final entry in remoteByKey.entries) {
-      if (matchedRemoteKeys.contains(entry.key)) continue;
-      final c = entry.value;
-      // 略過本機已用 collect_suuid 標記的
+    final seenRemote = <String>{};
+    for (final c in remote) {
+      if (matchedRemoteSuuids.contains(c.suuid)) continue;
+      if (!seenRemote.add(c.suuid)) continue;
       final already = localBooks.any(
-        (b) =>
-            b.collectSuuid != null &&
-            b.collectSuuid == c.suuid,
+        (b) => b.collectSuuid != null && b.collectSuuid == c.suuid,
       );
       if (already) continue;
 
@@ -118,12 +139,12 @@ class SyncDiffService {
     var ok = 0;
     for (final item in items) {
       try {
+        // 不寫入 category：手機書櫃 ≠ 收藏分類；寫入會蓋掉網站既有分類
         final created = await _collection.collectByProdId(
           session: session,
           prodId: item.prodId,
-          category: item.shelfName.trim().isEmpty
-              ? const []
-              : [item.shelfName.trim()],
+          category: const [],
+          includeCategory: false,
         );
         final updated = item.book.copyWith(
           prodId: item.prodId,
@@ -146,23 +167,32 @@ class SyncDiffService {
     final shelves = await _db.listShelves();
     final byName = {for (final s in shelves) s.name: s};
 
+    var shelf = byName[defaultImportShelfName];
+    if (shelf == null) {
+      shelf = await _db.createShelf(defaultImportShelfName);
+      byName[defaultImportShelfName] = shelf;
+    }
+
     for (final item in items) {
       try {
-        final shelfName = item.categories.isNotEmpty
-            ? item.categories.first
-            : defaultRemoteShelfName;
-        var shelf = byName[shelfName];
-        if (shelf == null) {
-          shelf = await _db.createShelf(shelfName);
-          byName[shelfName] = shelf;
-        }
-
         final barcode = item.ean.isNotEmpty ? item.ean : item.prodId;
         final existing = await _db.findByProdIdOrEan(
           prodId: item.prodId,
           ean: item.ean,
         );
-        if (existing != null) continue;
+        if (existing != null) {
+          if (existing.syncStatus != SyncStatus.synced ||
+              existing.collectSuuid != item.collectSuuid) {
+            await _db.updateBook(
+              existing.copyWith(
+                prodId: item.prodId,
+                collectSuuid: item.collectSuuid,
+                syncStatus: SyncStatus.synced,
+              ),
+            );
+          }
+          continue;
+        }
 
         await _db.addBook(
           shelfId: shelf.id,
@@ -178,6 +208,28 @@ class SyncDiffService {
       } catch (_) {}
     }
     return ok;
+  }
+
+  RemoteCollection? _matchRemote({
+    required String? prodId,
+    required String ean,
+    required Map<String, RemoteCollection> byProd,
+    required Map<String, RemoteCollection> byEan,
+  }) {
+    final p = prodId?.trim() ?? '';
+    if (p.isNotEmpty) {
+      final hit = byProd[p];
+      if (hit != null) return hit;
+    }
+    final e = _normalizeEan(ean);
+    if (e != null) return byEan[e];
+    return null;
+  }
+
+  String? _normalizeEan(String? raw) {
+    final e = (raw ?? '').replaceAll(RegExp(r'[\s-]'), '');
+    if (e.length >= 10 && RegExp(r'^[0-9]+$').hasMatch(e)) return e;
+    return null;
   }
 
   Future<String?> _resolveProdId(ShelfBook book) async {
@@ -209,11 +261,4 @@ class SyncDiffService {
     }
   }
 
-  String? _key({String? prodId, String? ean}) {
-    final p = prodId?.trim() ?? '';
-    if (p.isNotEmpty) return 'p:$p';
-    final e = (ean ?? '').replaceAll(RegExp(r'[\s-]'), '');
-    if (e.length >= 10) return 'e:$e';
-    return null;
-  }
 }
